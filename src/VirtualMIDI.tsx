@@ -34,7 +34,10 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
   useEffect(() => {
     if (!containerRef.current) return;
     const updateWidth = () => {
-      if (containerRef.current) setWidth(containerRef.current.offsetWidth);
+      if (containerRef.current) {
+        const newWidth = containerRef.current.offsetWidth;
+        if (newWidth > 0) setWidth(newWidth);
+      }
     };
     const observer = new ResizeObserver(updateWidth);
     observer.observe(containerRef.current);

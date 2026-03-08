@@ -432,8 +432,9 @@ const App: React.FC = () => {
 
   const parseVultCCs = useCallback((vultCode: string) => {
     const ccMap: Record<number, string> = {};
-    // Simpler regex to find CC assignments with optional comments
-    const regex = /(?:c|control)\s*==\s*(\d+)[\s\S]*?([a-zA-Z_]\w*)\s*=[^;]+;\s*(?:\s*\}|)\s*(?:\/\/+(.*))?/g;
+    // Extract CC mapping from if/else logic
+    // Pattern: if (c == 30) { param = val; } // Label
+    const regex = /(?:if|else\s+if)\s*\(\s*(?:c|control)\s*==\s*(\d+)\s*\)\s*\{?\s*([a-zA-Z_]\w*)\s*=[^;]+;?\s*\}?\s*(?:\/\/+(.*))?/g;
     
     let match;
     regex.lastIndex = 0;
@@ -446,7 +447,8 @@ const App: React.FC = () => {
         ccMap[cc] = comment || varName.toUpperCase();
       }
     }
-    // Fallback if nothing found
+    
+    // Return standard fallback if no CCs found to prevent UI from being empty
     if (Object.keys(ccMap).length === 0) {
       return { 30: 'SAW/SQR', 31: 'SINE LVL', 32: 'PWM AMT', 35: 'LFO RATE' };
     }
