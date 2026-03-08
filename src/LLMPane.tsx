@@ -59,6 +59,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const codeRef = useRef(currentCode);
+  const planRef = useRef("");
   const abortControllerRef = useRef<AbortController | null>(null);
   const askUserResolverRef = useRef<((val: string) => void) | null>(null);
   const stopFlagRef = useRef(false);
@@ -408,6 +409,32 @@ const LLMPane: React.FC<LLMPaneProps> = ({
         parameters: { type: "OBJECT", properties: {} }
       },
       {
+        name: "get_development_plan",
+        description: "Retrieves the currently documented internal development plan. Use this to ensure you are following the agreed-upon strategy.",
+        parameters: { type: "OBJECT", properties: {} }
+      },
+      {
+        name: "set_multiple_knobs",
+        description: "Adjusts multiple laboratory knobs (MIDI CCs) in a single action. Use this for complex parameter setups.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            knobs: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  cc: { type: "NUMBER", description: "The MIDI CC number (30-41)." },
+                  value: { type: "NUMBER", description: "The value (0.0 to 1.0)." }
+                },
+                required: ["cc", "value"]
+              }
+            }
+          },
+          required: ["knobs"]
+        }
+      },
+      {
         name: "write_plan",
         description: "Documents your multi-step plan internally before execution. Use this to break down complex DSP tasks.",
         parameters: {
@@ -736,34 +763,35 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           let functionResponses: MessagePart[] = [];
           
           const toolLabels: Record<string, string> = {
-            'get_current_code': 'Reading source code context',
-            'grep_search': 'Searching patterns',
-            'apply_diff': 'Applying surgical fix',
-            'edit_lines': 'Editing code block',
-            'update_code': 'Updating full code',
-            'set_knob': 'Adjusting laboratory knob',
-            'send_midi_cc': 'Sending MIDI command',
-            'trigger_generator': 'Triggering lab signal',
-            'configure_lab_input': 'Configuring DSP input',
-            'load_preset': 'Loading preset',
-            'list_presets': 'Browsing library',
-            'get_live_telemetry': 'Inspecting memory',
-            'get_spectrum_data': 'Analyzing spectrum',
-            'get_peak_frequencies': 'Finding peak frequencies',
-            'get_audio_metrics': 'Measuring audio quality',
-            'user_message': 'Sending status update',
-            'ask_user': 'Requesting guidance',
-            'write_plan': 'Documenting internal plan',
-            'store_snapshot': 'Saving version snapshot',
-            'list_functions': 'Analyzing function signatures',
-            'get_vult_reference': 'Consulting language guide',
-            'multi_edit': 'Performing batch edits',
-            'set_probes': 'Configuring logic analyzer',
-            'configure_sequencer': 'Programming sequencer',
-            'get_sequencer_state': 'Reading sequencer state',
-            'tell': 'Communicating'
+            'get_current_code': '[RESEARCH] Reading source code context',
+            'grep_search': '[RESEARCH] Searching patterns',
+            'apply_diff': '[ACTION] Applying surgical fix',
+            'edit_lines': '[ACTION] Editing code block',
+            'multi_edit': '[ACTION] Performing batch edits',
+            'update_code': '[ACTION] Updating full code',
+            'set_knob': '[TEST] Adjusting laboratory knob',
+            'set_multiple_knobs': '[TEST] Configuring parameter block',
+            'send_midi_cc': '[TEST] Sending MIDI command',
+            'trigger_generator': '[TEST] Triggering lab signal',
+            'configure_lab_input': '[TEST] Configuring DSP input',
+            'load_preset': '[ACTION] Loading preset',
+            'list_presets': '[RESEARCH] Browsing library',
+            'get_live_telemetry': '[RESEARCH] Inspecting memory',
+            'get_spectrum_data': '[RESEARCH] Analyzing spectrum',
+            'get_peak_frequencies': '[RESEARCH] Finding peak frequencies',
+            'get_audio_metrics': '[RESEARCH] Measuring audio quality',
+            'user_message': '[STATUS] Sending status update',
+            'ask_user': '[STATUS] Requesting guidance',
+            'write_plan': '[PLAN] Documenting internal plan',
+            'get_development_plan': '[PLAN] Reading internal plan',
+            'store_snapshot': '[STATUS] Saving version snapshot',
+            'list_functions': '[RESEARCH] Analyzing function signatures',
+            'get_vult_reference': '[RESEARCH] Consulting language guide',
+            'set_probes': '[RESEARCH] Configuring logic analyzer',
+            'configure_sequencer': '[TEST] Programming sequencer',
+            'get_sequencer_state': '[RESEARCH] Reading sequencer state',
+            'tell': '[STATUS] Communicating'
           };
-
           for (const fc of functionCalls) {
             if (stopFlagRef.current) break;
             const name = fc.name.includes(':') ? fc.name.split(':').pop() : fc.name;
@@ -772,11 +800,11 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             
             let result: any = {};
             if (name === 'get_current_code') {
-              addDisplayMsg('system', `🛠️ Reading current source code context`);
+              addDisplayMsg('system', `${label}`);
               result = { code: codeRef.current };
             } else if (name === 'grep_search') {
               const pattern = fc.args.pattern;
-              addDisplayMsg('system', `🔍 Searching for pattern: "${pattern}"`);
+              addDisplayMsg('system', `[RESEARCH] Searching for pattern: "${pattern}"`);
               const lines = codeRef.current.split('\n');
               try {
                 const regex = new RegExp(pattern, 'i');
@@ -786,25 +814,25 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             } else if (name === 'apply_diff') {
               const { old_string, new_string } = fc.args;
               const summary = old_string.length > 30 ? old_string.substring(0, 27) + "..." : old_string;
-              addDisplayMsg('system', `🪄 Replacing: "${summary}"`);
+              addDisplayMsg('system', `[ACTION] Replacing: "${summary}"`);
               
               if (codeRef.current.includes(old_string)) {
                 const newCode = codeRef.current.replace(old_string, new_string);
                 const res = await onUpdateCode(newCode);
                 if (res.success) {
-                  addDisplayMsg('system', `✅ Applied surgical fix successfully.`);
+                  addDisplayMsg('system', `[ACTION] Applied surgical fix successfully.`);
                   result = { success: true, message: "Search-and-replace successful. Code is valid. Please verify the output on the scope." };
                 } else {
-                  addDisplayMsg('system', `❌ Diff failed to compile:\n${res.error}`);
+                  addDisplayMsg('system', `[ACTION] Diff failed to compile:\n${res.error}`);
                   result = { success: false, error: res.error, context: "Your surgical replacement caused a compilation error. Re-check the logic." };
                 }
               } else {
-                addDisplayMsg('system', `❌ Error: Could not find exact match for: "${summary}"`);
+                addDisplayMsg('system', `[ACTION] Error: Could not find exact match for: "${summary}"`);
                 result = { success: false, error: "Pattern not found." };
               }
             } else if (name === 'edit_lines') {
               const { start_line, end_line } = fc.args;
-              addDisplayMsg('system', `📝 Editing lines ${start_line} through ${end_line}`);
+              addDisplayMsg('system', `[ACTION] Editing lines ${start_line} through ${end_line}`);
               const { new_code } = fc.args;
               const lines = codeRef.current.split('\n');
               if (start_line > 0 && end_line >= start_line && start_line <= lines.length) {
@@ -813,19 +841,19 @@ const LLMPane: React.FC<LLMPaneProps> = ({
                 const updatedCode = [...before, new_code, ...after].join('\n');
                 const res = await onUpdateCode(updatedCode);
                 if (res.success) {
-                  addDisplayMsg('system', `✅ Successfully replaced lines ${start_line}-${end_line}.`);
+                  addDisplayMsg('system', `[ACTION] Successfully replaced lines ${start_line}-${end_line}.`);
                   result = { success: true, message: `Lines ${start_line}-${end_line} updated. Code is valid. You should now use get_live_telemetry or get_spectrum_data to verify behavior.` };
                 } else {
-                  addDisplayMsg('system', `❌ Edit on lines ${start_line}-${end_line} failed to compile:\n${res.error}`);
+                  addDisplayMsg('system', `[ACTION] Edit on lines ${start_line}-${end_line} failed to compile:\n${res.error}`);
                   result = { success: false, error: res.error, context: "The code you provided resulted in a compilation error. Please analyze the error and fix the logic." };
                 }
               } else {
-                addDisplayMsg('system', `❌ Invalid line range: ${start_line}-${end_line}`);
+                addDisplayMsg('system', `[ACTION] Invalid line range: ${start_line}-${end_line}`);
                 result = { success: false, error: "Invalid line ranges." };
               }
             } else if (name === 'multi_edit') {
               const edits = [...fc.args.edits];
-              addDisplayMsg('system', `🛠️ Applying ${edits.length} batch edits`);
+              addDisplayMsg('system', `[ACTION] Applying ${edits.length} batch edits`);
               // Sort descending to handle line shifts
               edits.sort((a, b) => b.start_line - a.start_line);
               let workingLines = codeRef.current.split('\n');
@@ -840,74 +868,80 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               if (ok) {
                 const res = await onUpdateCode(workingLines.join('\n'));
                 if (res.success) {
-                  addDisplayMsg('system', `✅ Batch edits applied successfully.`);
+                  addDisplayMsg('system', `[ACTION] Batch edits applied successfully.`);
                   result = { success: true };
                 } else {
-                  addDisplayMsg('system', `❌ Batch failed to compile:\n${res.error}`);
+                  addDisplayMsg('system', `[ACTION] Batch failed to compile:\n${res.error}`);
                   result = { success: false, error: res.error };
                 }
               } else {
                 result = { success: false, error: "Invalid line ranges." };
               }
             } else if (name === 'set_probes') {
-              addDisplayMsg('system', `🛠️ Configuring logic analyzer probes: ${fc.args.probes.join(', ')}`);
+              addDisplayMsg('system', `[RESEARCH] Configuring logic analyzer probes: ${fc.args.probes.join(', ')}`);
               onSetProbes(fc.args.probes);
               result = { success: true };
             } else if (name === 'update_code') {
-              addDisplayMsg('system', `🚀 Performing full code rewrite`);
+              addDisplayMsg('system', `[ACTION] Performing full code rewrite`);
               const res = await onUpdateCode(fc.args.new_code);
               if (res.success) {
-                addDisplayMsg('system', `✅ Entire code block updated and compiled.`);
+                addDisplayMsg('system', `[ACTION] Entire code block updated and compiled.`);
                 result = { success: true, message: "Full code update successful. Waiting for user approval. Perform verification tools if needed." };
               } else {
-                addDisplayMsg('system', `❌ Full rewrite failed to compile:\n${res.error}`);
+                addDisplayMsg('system', `[ACTION] Full rewrite failed to compile:\n${res.error}`);
                 result = { success: false, error: res.error };
               }
             } else if (name === 'set_knob' || name === 'send_midi_cc') {
               const { cc, value } = fc.args;
-              addDisplayMsg('system', `🎛️ Setting CC ${cc} to ${value}`);
+              addDisplayMsg('system', `[TEST] Setting CC ${cc} to ${value}`);
               onSetKnob(cc, value);
+              result = { success: true };
+            } else if (name === 'set_multiple_knobs') {
+              addDisplayMsg('system', `${label}`);
+              fc.args.knobs.forEach((k: any) => onSetKnob(k.cc, k.value));
               result = { success: true };
             } else if (name === 'trigger_generator') {
               const idx = fc.args.index;
-              addDisplayMsg('system', `⚡ Triggering lab generator on strip ${idx + 1}`);
+              addDisplayMsg('system', `[TEST] Triggering lab generator on strip ${idx + 1}`);
               onTriggerGenerator(idx);
               result = { success: true };
             } else if (name === 'configure_lab_input') {
               const { index, type } = fc.args;
-              addDisplayMsg('system', `⚙️ Configuring lab strip ${index + 1} as ${type.toUpperCase()}`);
+              addDisplayMsg('system', `[TEST] Configuring lab strip ${index + 1} as ${type.toUpperCase()}`);
               onConfigureInput(index, fc.args);
               result = { success: true };
             } else if (name === 'load_preset') {
               const pName = fc.args.name;
-              addDisplayMsg('system', `📁 Loading library preset: "${pName}"`);
+              addDisplayMsg('system', `[ACTION] Loading library preset: "${pName}"`);
               onLoadPreset(pName);
               result = { success: true };
             } else if (name === 'configure_sequencer') {
+              addDisplayMsg('system', `${label}`);
               onConfigureSequencer(fc.args.bpm, fc.args.steps, fc.args.playing);
               result = { success: true };
             } else if (name === 'get_sequencer_state') {
+              addDisplayMsg('system', `${label}`);
               result = { state: getSequencerState() };
             } else if (name === 'list_presets') {
-              addDisplayMsg('system', `📚 Browsing preset library`);
+              addDisplayMsg('system', `[RESEARCH] Browsing preset library`);
               result = { presets: getPresets() };
             } else if (name === 'get_live_telemetry') {
-              addDisplayMsg('system', `👁️ Inspecting internal memory states`);
+              addDisplayMsg('system', `[RESEARCH] Inspecting internal memory states`);
               result = { telemetry: getTelemetry() };
             } else if (name === 'get_spectrum_data') {
-              addDisplayMsg('system', `📊 Capturing frequency spectrum snapshot`);
+              addDisplayMsg('system', `[RESEARCH] Capturing frequency spectrum snapshot`);
               result = { spectrum: getSpectrum() };
             } else if (name === 'get_peak_frequencies') {
-              addDisplayMsg('system', `📊 Finding peak frequencies`);
+              addDisplayMsg('system', `[RESEARCH] Finding peak frequencies`);
               result = { peaks: getPeakFrequencies(fc.args.count) };
             } else if (name === 'get_audio_metrics') {
-              addDisplayMsg('system', `📈 Measuring output signal quality (RMS/Peak/Headroom)`);
+              addDisplayMsg('system', `[RESEARCH] Measuring output signal quality (RMS/Peak/Headroom)`);
               result = { metrics: getAudioMetrics() };
             } else if (name === 'user_message' || name === 'tell') {
               addDisplayMsg('assistant', fc.args.message);
               result = { success: true };
             } else if (name === 'list_functions') {
-              addDisplayMsg('system', `🛠️ Analyzing source code for function signatures`);
+              addDisplayMsg('system', `[RESEARCH] Analyzing source code for function signatures`);
               const regex = /fun\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*(?::\s*([a-zA-Z_]\w*))?/g;
               const functions = [];
               let match;
@@ -920,7 +954,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               }
               result = { functions: functions.length > 0 ? functions : "No functions found." };
             } else if (name === 'get_vult_reference') {
-              addDisplayMsg('system', `🛠️ Consulting Vult technical reference`);
+              addDisplayMsg('system', `[RESEARCH] Consulting Vult technical reference`);
               result = {
                 reference: {
                   types: "real (float), int (integer), bool (boolean), array(type, size)",
@@ -931,10 +965,14 @@ const LLMPane: React.FC<LLMPaneProps> = ({
                 }
               };
             } else if (name === 'write_plan') {
-              addDisplayMsg('system', `📝 Documenting internal development plan`);
-              result = { success: true, next_step: "Plan recorded. PROCEED IMMEDIATELY to implement the first step using editing tools. DO NOT stop the autonomous loop." };
+              planRef.current = fc.args.plan;
+              addDisplayMsg('system', `${label}`);
+              result = { success: true, next_step: "Plan recorded. PROCEED IMMEDIATELY to implementation. DO NOT stop the loop." };
+            } else if (name === 'get_development_plan') {
+              addDisplayMsg('system', `${label}`);
+              result = { plan: planRef.current || "No plan documented yet." };
             } else if (name === 'store_snapshot') {
-              addDisplayMsg('system', `📸 Storing snapshot: "${fc.args.message}"`);
+              addDisplayMsg('system', `[STATUS] Storing snapshot: "${fc.args.message}"`);
               onSaveSnapshot(fc.args.message);
               result = { success: true };
             } else if (name === 'ask_user') {

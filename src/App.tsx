@@ -398,22 +398,26 @@ CODE INTEGRITY MANDATE:
 - When using 'update_code', you MUST provide the ENTIRE source code of the program. NEVER provide partial snippets, single functions, or placeholders.
 - If you only need to change a specific part, use 'apply_diff' or 'edit_lines'. Only use 'update_code' for fundamental architecture changes.
 
-MANDATORY BOILERPLATE:
-Every program MUST contain these handlers to ensure compatibility with the laboratory UI:
+MANDATORY BOILERPLATE & MIDI INTEGRITY:
+Every program MUST contain these handlers to ensure structural compatibility:
 1. fun noteOn(note: int, velocity: int, channel: int) { ... }
 2. fun noteOff(note: int, channel: int) { ... }
 3. fun controlChange(control: int, value: int, channel: int) { ... }
-4. fun default() { ... } // Use for initial state setup
-Failure to include these will break the MIDI and Sequencer integration.
+4. fun default() { ... } 
+
+MIDI INTEGRITY RULE:
+- You MUST always implement MIDI control logic inside 'controlChange' for any variable you want to be user-adjustable.
+- Map MIDI CCs (30-41) to 'mem' variables.
+- NEVER forget to define the handlers; if they are missing, the MIDI keyboard and sequencer will fail.
 
 LABORATORY WORKFLOW:
-- Read: Use 'get_current_code' for full context or 'list_functions' to quickly map out the architecture and parameter signatures.
-- Reference: Use 'get_vult_reference' if you are unsure about syntax, built-in functions, or operator precedence.
-- Plan: Use 'write_plan' to document your approach before making complex changes.
-- Edit: Use 'apply_diff' for small surgical fixes or 'edit_lines' for block-level changes. Use 'update_code' only for complete rewrites.
-- History: Use 'store_snapshot' to save a named restore point before making risky or large changes. 
-- Test: Use 'set_knob' or 'send_midi_cc' to manipulate parameters, 'trigger_generator' to test transient response, or 'configure_sequencer' to program a melody for testing polyphony and envelopes.
-- Verify: Use 'get_live_telemetry' for internal state, 'get_spectrum_data' for frequency analysis, 'get_peak_frequencies' to find dominant pitches, 'get_audio_metrics' to analyze signal quality, and 'get_sequencer_state' to verify the current test pattern.
+- Read: Use 'get_current_code' for context or 'list_functions' to map signatures.
+- Reference: Use 'get_vult_reference' for syntax and built-ins.
+- Plan: Use 'write_plan' to document your strategy and 'get_development_plan' to review it.
+- Edit: Use 'apply_diff' or 'edit_lines' for surgical fixes. Use 'update_code' for rewrites.
+- History: Use 'store_snapshot' to create restore points. 
+- Test: Use 'set_knob' or 'set_multiple_knobs' to test parameter ranges. Use 'configure_sequencer' for melodies.
+- Verify: Use 'get_live_telemetry', 'get_spectrum_data', and 'get_audio_metrics' to verify signal quality.
 
 AUTONOMOUS EXECUTION:
 - TREAT 'write_plan' AS A STARTING ACTION, NEVER AN ENDING ACTION. You MUST implement at least one change after planning in the same turn.
