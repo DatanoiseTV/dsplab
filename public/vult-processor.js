@@ -18,6 +18,7 @@ class VultProcessor extends AudioWorkletProcessor {
       if (type === 'updateCode') {
         try {
           const factory = new Function(`
+            var exports = {};
             ${data.jsCode}
             if (typeof vultProcess !== 'undefined') return vultProcess;
             if (typeof exports !== 'undefined' && exports.vultProcess) return exports.vultProcess;
@@ -30,6 +31,7 @@ class VultProcessor extends AudioWorkletProcessor {
           const initFn = this.vultInstance.liveDefault || this.vultInstance.default;
           if (typeof initFn === 'function') initFn.call(this.vultInstance);
           
+          console.log("[Worklet] Vult instance loaded. Initializing telemetry...");
           this.port.postMessage({ type: 'status', success: true });
         } catch (err) {
           console.error("[Worklet] Update Error:", err);
@@ -63,30 +65,34 @@ class VultProcessor extends AudioWorkletProcessor {
     };
   }
 
-  // Improved state collection: target Vult memory specifically
+  // Ultra-aggressive state collection
   collectState() {
     if (!this.vultInstance) return {};
-    let state = {};
+    const state = {};
     
-    // 1. Check the 'context' property (most common Vult storage)
-    const ctx = this.vultInstance.context || this.vultInstance._ctx;
-    if (ctx && typeof ctx === 'object') {
-      for (const key in ctx) {
-        const val = ctx[key];
+    // Check main context first (standard Vult storage)
+    const contexts = [this.vultInstance.context, this.vultInstance._ctx, this.vultInstance];
+    
+    contexts.forEach(target => {
+      if (!target || typeof target !== 'object') return;
+      for (const key in target) {
+        // Skip noise
+        if (key === 'context' || key === '_ctx' || key.startsWith('live') || key.startsWith('Live_') || typeof target[key] === 'function') continue;
+        
+        const val = target[key];
         if (typeof val === 'number' || typeof val === 'boolean') {
           state[key] = val;
+        } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+          // Flatten sub-objects (like ADSR states) one level
+          for (const subKey in val) {
+            const subVal = val[subKey];
+            if (typeof subVal === 'number' || typeof subVal === 'boolean') {
+              state[`${key}.${subKey}`] = subVal;
+            }
+          }
         }
       }
-    }
-
-    // 2. Check the instance itself (for simple variables)
-    for (const key in this.vultInstance) {
-      if (key === 'context' || key === '_ctx' || key.startsWith("Live_") || key.startsWith("live") || typeof this.vultInstance[key] === 'function') continue;
-      const val = this.vultInstance[key];
-      if (typeof val === 'number' || typeof val === 'boolean') {
-        state[key] = val;
-      }
-    }
+    });
 
     return state;
   }
@@ -134,10 +140,16 @@ class VultProcessor extends AudioWorkletProcessor {
           try {
             const result = processFn.apply(this.vultInstance, inputValues);
             
-            // Probing system: find value in context or instance
+            // PROBE SYNC (supports flattened paths)
             this.activeProbes.forEach(p => {
               const ctx = this.vultInstance.context || this.vultInstance._ctx || this.vultInstance;
-              const val = ctx[p] !== undefined ? ctx[p] : this.vultInstance[p];
+              let val = 0;
+              if (p.includes('.')) {
+                const [obj, key] = p.split('.');
+                if (ctx[obj] && typeof ctx[obj][key] === 'number') val = ctx[obj][key];
+              } else {
+                val = ctx[p] !== undefined ? ctx[p] : this.vultInstance[p];
+              }
               if (this.probeBuffers[p]) this.probeBuffers[p][this.bufferIdx] = typeof val === 'number' ? val : 0;
             });
             this.bufferIdx = (this.bufferIdx + 1) % this.bufferSize;
@@ -160,8 +172,8 @@ class VultProcessor extends AudioWorkletProcessor {
       }
     }
 
-    // TELEMETRY: Send state updates to UI
-    if (this.vultInstance && this.telemetryCounter++ > 20) {
+    // TELEMETRY
+    if (this.vultInstance && this.telemetryCounter++ > 25) {
       this.telemetryCounter = 0;
       const state = this.collectState();
       this.port.postMessage({ type: 'telemetry', state, probes: this.probeBuffers });
