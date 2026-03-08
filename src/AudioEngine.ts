@@ -28,7 +28,7 @@ export class AudioEngine {
   private spectrumBuffer: Uint8Array;
   private isPlaying = false;
   private liveState: Record<string, any> = {};
-  private probedStates: Record<string, Float32Array> = {};
+  private probedStates: Record<string, number[]> = {};
   
   private sources: InputSource[] = [];
 

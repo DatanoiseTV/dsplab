@@ -36,13 +36,13 @@ class VultProcessor extends AudioWorkletProcessor {
     this.phases = [];
     this.sampleRate = 44100;
     this.telemetryCounter = 0;
-    this.bufferSize = 2048;
-    this.bufferIdx = 0;
+    
     this.activeProbes = [];
-    this.probeBuffers = {};
+    this.probeHistory = {}; // Store small chunks of data to send to UI
+    this.historySize = 128; // Send 128 points at a time (approx 15Hz if downsampled)
+    
     this.genStates = [];
     this.sampleBuffers = {}; 
-    
     this.discoveredKeys = [];
 
     this.port.onmessage = (event) => {
@@ -96,15 +96,13 @@ class VultProcessor extends AudioWorkletProcessor {
       } else if (type === 'setProbes') {
         this.activeProbes = data.probes || [];
         this.activeProbes.forEach(p => {
-          if (!this.probeBuffers[p]) this.probeBuffers[p] = new Float32Array(this.bufferSize);
+          if (!this.probeHistory[p]) this.probeHistory[p] = [];
         });
       } else if (type === 'trigger') {
         if (this.genStates[data.index] !== undefined) {
           this.genStates[data.index] = 1.0;
           this.phases[data.index] = 0;
         }
-      } else if (type === 'setSampleRate') {
-        this.sampleRate = data.sampleRate || 44100;
       } else if (type === 'noteOn' || type === 'noteOff' || type === 'controlChange') {
         if (this.vultInstance) {
           const method = type === 'noteOn' ? (this.vultInstance.liveNoteOn || this.vultInstance.noteOn) :
@@ -156,9 +154,8 @@ class VultProcessor extends AudioWorkletProcessor {
       for (const segment of item.segments) {
         if (current) current = current[segment]; else break;
       }
-      if (typeof current === 'number' || typeof current === 'boolean') {
-        state[item.path] = current;
-      }
+      if (typeof current === 'number') state[item.path] = current;
+      else if (typeof current === 'boolean') state[item.path] = current ? 1.0 : 0.0;
     }
     return state;
   }
@@ -177,9 +174,8 @@ class VultProcessor extends AudioWorkletProcessor {
       for (let s = 0; s < numInputs; s++) {
         const src = this.sources[s];
         if (!src) { inputValues.push(0); continue; }
-        
         if (src.type === 'oscillator') {
-          const phaseInc = (src.freq || 440) / this.sampleRate;
+          const phaseInc = (src.freq || 440) / 44100;
           this.phases[s] = (this.phases[s] + (isNaN(phaseInc) ? 0 : phaseInc)) % 1.0;
           const p = this.phases[s];
           if (src.oscType === 'sine') inputValues.push(Math.sin(p * 2 * Math.PI));
@@ -224,16 +220,6 @@ class VultProcessor extends AudioWorkletProcessor {
         try {
           const result = this.vultInstance._processFn.apply(this.vultInstance, inputValues);
           
-          if (this.activeProbes.length > 0) {
-            this.activeProbes.forEach(p => {
-              const parts = p.split('.');
-              let target = this.vultInstance.context || this.vultInstance._ctx || this.vultInstance;
-              for(const part of parts) { if(target && target[part] !== undefined) target = target[part]; else break; }
-              if (this.probeBuffers[p]) this.probeBuffers[p][this.bufferIdx] = typeof target === 'number' ? target : 0;
-            });
-            this.bufferIdx = (this.bufferIdx + 1) % this.bufferSize;
-          }
-
           if (typeof result === 'object' && result !== null) {
             outputL[i] = result.t0 || 0;
             if (outputR) outputR[i] = result.t1 !== undefined ? result.t1 : outputL[i];
@@ -249,10 +235,28 @@ class VultProcessor extends AudioWorkletProcessor {
       }
     }
 
-    if (this.vultInstance && this.telemetryCounter++ > 30) {
-      this.telemetryCounter = 0;
-      const state = this.getQuickState();
-      this.port.postMessage({ type: 'telemetry', state, probes: this.probeBuffers });
+    // TELEMETRY & PROBE COLLECTION (Downsampled to Block Rate)
+    if (this.vultInstance) {
+      this.activeProbes.forEach(p => {
+        const parts = p.split('.');
+        let target = this.vultInstance.context || this.vultInstance._ctx || this.vultInstance;
+        for(const part of parts) { if(target && target[part] !== undefined) target = target[part]; else break; }
+        
+        let val = 0;
+        if (typeof target === 'number') val = target;
+        else if (typeof target === 'boolean') val = target ? 1.0 : 0.0;
+        
+        if (!this.probeHistory[p]) this.probeHistory[p] = [];
+        this.probeHistory[p].push(val);
+      });
+
+      if (this.telemetryCounter++ > 23) {
+        this.telemetryCounter = 0;
+        const state = this.getQuickState();
+        this.port.postMessage({ type: 'telemetry', state, probes: this.probeHistory });
+        // Clear history after sending
+        for (const key in this.probeHistory) { this.probeHistory[key] = []; }
+      }
     }
 
     return true;

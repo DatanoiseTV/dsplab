@@ -3,7 +3,7 @@ import React, { useEffect, useRef } from 'react';
 interface ScopeViewProps {
   getScopeData: () => Float32Array;
   getSpectrumData: () => Uint8Array;
-  getProbedData?: (name: string) => Float32Array | null;
+  getProbedData?: (name: string) => number[] | null;
   probes?: string[];
 }
 

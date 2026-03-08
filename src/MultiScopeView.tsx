@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 
 interface MultiScopeViewProps {
   probes: string[];
-  getProbedData: (name: string) => Float32Array | null;
+  getProbedData: (name: string) => number[] | null;
 }
 
 const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }) => {
@@ -23,7 +23,6 @@ const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }
     ];
 
     const render = () => {
-      // Handle High DPI displays
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
@@ -33,32 +32,17 @@ const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }
       
       ctx.save();
       ctx.scale(dpr, dpr);
-      
       const drawWidth = rect.width;
       const drawHeight = rect.height;
 
       ctx.fillStyle = '#050a05';
       ctx.fillRect(0, 0, drawWidth, drawHeight);
 
-      // Draw Grid
-      ctx.strokeStyle = 'rgba(0, 255, 0, 0.15)'; // Brighter grid lines
+      // Grid
+      ctx.strokeStyle = 'rgba(0, 255, 0, 0.15)';
       ctx.lineWidth = 0.5;
-      
-      // Vertical grid lines (time)
-      for (let i = 0; i < drawWidth; i += 40) { 
-        ctx.beginPath(); 
-        ctx.moveTo(i, 0); 
-        ctx.lineTo(i, drawHeight); 
-        ctx.stroke(); 
-      }
-      
-      // Horizontal grid lines (value)
-      for (let i = 0; i < drawHeight; i += 20) { 
-        ctx.beginPath(); 
-        ctx.moveTo(0, i); 
-        ctx.lineTo(drawWidth, i); 
-        ctx.stroke(); 
-      }
+      for (let i = 0; i < drawWidth; i += 40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, drawHeight); ctx.stroke(); }
+      for (let i = 0; i < drawHeight; i += 20) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(drawWidth, i); ctx.stroke(); }
 
       if (probes.length === 0) {
         ctx.fillStyle = '#444';
@@ -70,15 +54,14 @@ const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }
         return;
       }
 
-      // Update History
+      // Update History with new block of points
       probes.forEach(probe => {
-        const data = getProbedData(probe);
-        if (data) {
+        const newData = getProbedData(probe);
+        if (newData && newData.length > 0) {
           if (!historyRef.current[probe]) historyRef.current[probe] = [];
-          const latestVal = data[data.length - 1];
-          historyRef.current[probe].push(latestVal);
+          historyRef.current[probe].push(...newData);
           if (historyRef.current[probe].length > timebase) {
-            historyRef.current[probe].shift();
+            historyRef.current[probe] = historyRef.current[probe].slice(-timebase);
           }
         }
       });
@@ -86,18 +69,14 @@ const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }
       const laneHeight = drawHeight / probes.length;
 
       probes.forEach((probe, idx) => {
-        // Draw Lane Separator
+        const history = historyRef.current[probe];
+        if (!history || history.length < 2) return;
+
         if (idx > 0) {
           ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
           ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(0, idx * laneHeight);
-          ctx.lineTo(drawWidth, idx * laneHeight);
-          ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(0, idx * laneHeight); ctx.lineTo(drawWidth, idx * laneHeight); ctx.stroke();
         }
-
-        const history = historyRef.current[probe];
-        if (!history || history.length < 2) return;
 
         const color = colors[idx % colors.length];
         ctx.strokeStyle = color;
@@ -105,8 +84,6 @@ const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }
         ctx.beginPath();
 
         const sliceWidth = drawWidth / (timebase - 1);
-        
-        // Fast Auto-scale logic
         let min = history[0];
         let max = history[0];
         for (let i = 1; i < history.length; i++) {
@@ -115,24 +92,31 @@ const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }
         }
         let range = Math.max(0.0001, max - min);
 
-        for (let i = 0; i < history.length; i++) {
-          const val = history[i];
+        // Check if logic signal (boolean-like)
+        const isLogic = range === 1.0 && (min === 0 || min === -1);
+
+        history.forEach((val, i) => {
           const norm = (val - min) / range;
           const x = i * sliceWidth;
           const y = (idx * laneHeight) + (laneHeight - norm * laneHeight * 0.8) - (laneHeight * 0.1);
-          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
+          
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            if (isLogic) {
+              // Square-edged plotting for logic
+              ctx.lineTo(x, (idx * laneHeight) + (laneHeight - (history[i-1] - min) / range * laneHeight * 0.8) - (laneHeight * 0.1));
+            }
+            ctx.lineTo(x, y);
+          }
+        });
         ctx.stroke();
 
-        // Label and Value with better visibility
         ctx.font = 'bold 10px monospace';
         const labelText = `${probe}: ${history[history.length-1].toFixed(4)}`;
-        
-        // Text background for legibility
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         const textWidth = ctx.measureText(labelText).width;
         ctx.fillRect(2, (idx * laneHeight) + 2, textWidth + 6, 14);
-
         ctx.fillStyle = color;
         ctx.fillText(labelText, 5, (idx * laneHeight) + 12);
       });
@@ -150,7 +134,7 @@ const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
         <span style={{ fontSize: '8px', color: '#666' }}>TIMEBASE</span>
         <input 
-          type="range" min="100" max="2000" value={timebase} 
+          type="range" min="100" max="5000" value={timebase} 
           onChange={(e) => setTimebase(parseInt(e.target.value))}
           style={{ width: '80px', height: '10px' }}
         />
