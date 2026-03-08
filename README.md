@@ -2,8 +2,7 @@
 
 A web-based IDE and diagnostic laboratory for the **Vult DSP language**.
 
-<img width="3248" height="1956" alt="image" src="https://github.com/user-attachments/assets/ec554274-5b60-408b-b8c6-9d04f5667684" />
-
+<img width="3248" height="1956" alt="image" src="https://github.com/user-attachments/assets/9765091d-cac8-4ad8-81dd-fb08855cd5a0" />
 
 Vult-O-Mat combines a low-latency AudioWorklet execution engine with server-side compilation and real-time visual telemetry, providing an unparalleled environment for developing high-quality audio algorithms for embedded hardware and desktop plugins.
 
