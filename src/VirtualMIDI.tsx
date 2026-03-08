@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Keyboard, MousePointer2, ChevronLeft, ChevronRight, Volume2, Volume1 } from 'lucide-react';
 
 interface VirtualMIDIProps {
@@ -9,37 +9,9 @@ interface VirtualMIDIProps {
 
 const KNOB_CCS = [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41];
 
-const KEY_MAP: Record<string, number> = {
-  'a': 0,  'w': 1,  's': 2,  'e': 3,  'd': 4,  'f': 5,  't': 6,  'g': 7,  'y': 8,  'h': 9,  'u': 10, 'j': 11, 'k': 12, 'o': 13, 'l': 14, 'p': 15, ';': 16, "'": 17
-};
-
-const KEYS = [
-  { offset: 0, label: 'C', key: 'A', type: 'white' },
-  { offset: 1, label: 'C#', key: 'W', type: 'black' },
-  { offset: 2, label: 'D', key: 'S', type: 'white' },
-  { offset: 3, label: 'D#', key: 'E', type: 'black' },
-  { offset: 4, label: 'E', key: 'D', type: 'white' },
-  { offset: 5, label: 'F', key: 'F', type: 'white' },
-  { offset: 6, label: 'F#', key: 'T', type: 'black' },
-  { offset: 7, label: 'G', key: 'G', type: 'white' },
-  { offset: 8, label: 'G#', key: 'Y', type: 'black' },
-  { offset: 9, label: 'A', key: 'H', type: 'white' },
-  { offset: 10, label: 'A#', key: 'U', type: 'black' },
-  { offset: 11, label: 'B', key: 'J', type: 'white' },
-  { offset: 12, label: 'C', key: 'K', type: 'white' },
-  { offset: 13, label: 'C#', key: 'O', type: 'black' },
-  { offset: 14, label: 'D', key: 'L', type: 'white' },
-  { offset: 15, label: 'D#', key: 'P', type: 'black' },
-  { offset: 16, label: 'E', key: ';', type: 'white' },
-  { offset: 17, label: 'F', key: "'", type: 'white' },
-  { offset: 18, label: 'F#', key: '', type: 'black' },
-  { offset: 19, label: 'G', key: '', type: 'white' },
-  { offset: 20, label: 'G#', key: '', type: 'black' },
-  { offset: 21, label: 'A', key: '', type: 'white' },
-  { offset: 22, label: 'A#', key: '', type: 'black' },
-  { offset: 23, label: 'B', key: '', type: 'white' },
-  { offset: 24, label: 'C', key: '', type: 'white' },
-];
+const KEY_LABELS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const KEY_TYPES = ['white', 'black', 'white', 'black', 'white', 'white', 'black', 'white', 'black', 'white', 'black', 'white'];
+const KEYBOARD_MAPPING = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k', 'o', 'l', 'p', ';', "'"];
 
 const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) => {
   const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
@@ -49,8 +21,47 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
   const [ccValues, setCcValues] = useState<Record<number, number>>(
     KNOB_CCS.reduce((acc, cc) => ({ ...acc, [cc]: 64 }), {})
   );
+  
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [numKeys, setNumKeys] = useState(25); // Default
 
   const baseNote = octave * 12 + 12;
+
+  // Adaptive keyboard width logic
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const updateSize = () => {
+      if (containerRef.current) {
+        const width = containerRef.current.offsetWidth;
+        // White keys are 30px wide. We calculate how many fit.
+        // We want to fill the width but stay musically consistent (multiples of 12 preferred, or just as many as fit)
+        const whiteKeyWidth = 30;
+        const maxWhiteKeys = Math.floor(width / whiteKeyWidth);
+        
+        // Convert white keys back to total keys (including black)
+        // Roughly 7 white keys per 12 keys
+        let estimatedTotalKeys = Math.floor((maxWhiteKeys / 7) * 12);
+        
+        // Clamp to reasonable range
+        setNumKeys(Math.max(12, Math.min(estimatedTotalKeys, 127 - baseNote)));
+      }
+    };
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(containerRef.current);
+    updateSize();
+    return () => observer.disconnect();
+  }, [baseNote]);
+
+  const generatedKeys = Array.from({ length: numKeys }).map((_, i) => {
+    const chromaticIdx = i % 12;
+    return {
+      offset: i,
+      label: KEY_LABELS[chromaticIdx],
+      type: KEY_TYPES[chromaticIdx],
+      kbChar: KEYBOARD_MAPPING[i] || ''
+    };
+  });
 
   const handleNoteOn = useCallback((note: number) => {
     setActiveNotes(prev => {
@@ -86,13 +97,14 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
       if (key === 'c') { setVelocity(v => Math.max(1, v - 20)); return; }
       if (key === 'v') { setVelocity(v => Math.min(127, v + 20)); return; }
       if (!kbEnabled || e.repeat) return;
-      const offset = KEY_MAP[key];
-      if (offset !== undefined) handleNoteOn(baseNote + offset);
+      
+      const mapIdx = KEYBOARD_MAPPING.indexOf(key);
+      if (mapIdx !== -1 && mapIdx < numKeys) handleNoteOn(baseNote + mapIdx);
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (!kbEnabled) return;
-      const offset = KEY_MAP[e.key.toLowerCase()];
-      if (offset !== undefined) handleNoteOff(baseNote + offset);
+      const mapIdx = KEYBOARD_MAPPING.indexOf(e.key.toLowerCase());
+      if (mapIdx !== -1 && mapIdx < numKeys) handleNoteOff(baseNote + mapIdx);
     };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -100,7 +112,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [kbEnabled, baseNote, handleNoteOn, handleNoteOff]);
+  }, [kbEnabled, baseNote, handleNoteOn, handleNoteOff, numKeys]);
 
   return (
     <div className="virtual-midi-panel">
@@ -108,17 +120,17 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
         <div className="midi-group">
           <span className="mini-label">OCTAVE</span>
           <div className="stepper">
-            <ChevronLeft size={10} onClick={() => setOctave(o => Math.max(0, o - 1))} />
+            <ChevronLeft size={10} style={{ cursor: 'pointer' }} onClick={() => setOctave(o => Math.max(0, o - 1))} />
             <span className="stepper-value">{octave - 2}</span>
-            <ChevronRight size={10} onClick={() => setOctave(o => Math.min(8, o + 1))} />
+            <ChevronRight size={10} style={{ cursor: 'pointer' }} onClick={() => setOctave(o => Math.min(8, o + 1))} />
           </div>
         </div>
         <div className="midi-group">
           <span className="mini-label">VELOCITY</span>
           <div className="stepper">
-            <Volume1 size={10} onClick={() => setVelocity(v => Math.max(1, v - 20))} />
+            <Volume1 size={10} style={{ cursor: 'pointer' }} onClick={() => setVelocity(v => Math.max(1, v - 20))} />
             <span className="stepper-value">{velocity}</span>
-            <Volume2 size={10} onClick={() => setVelocity(v => Math.min(127, v + 20))} />
+            <Volume2 size={10} style={{ cursor: 'pointer' }} onClick={() => setVelocity(v => Math.min(127, v + 20))} />
           </div>
         </div>
         <div className="spacer" />
@@ -138,12 +150,12 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
         ))}
       </div>
 
-      <div className="keyboard-container">
+      <div className="keyboard-container" ref={containerRef}>
         <div className="keyboard-inner">
-          {KEYS.map((k, i) => {
+          {generatedKeys.map((k, i) => {
             const note = baseNote + k.offset;
             const isActive = activeNotes.has(note);
-            const whiteKeysCount = KEYS.filter((x, idx) => x.type === 'white' && idx < i).length;
+            const whiteKeysCount = generatedKeys.filter((x, idx) => x.type === 'white' && idx < i).length;
             
             if (k.type === 'white') {
               return (
@@ -152,7 +164,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
                   onMouseLeave={() => isActive && handleNoteOff(note)}
                   onTouchStart={(e) => { e.preventDefault(); handleNoteOn(note); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleNoteOff(note); }}>
-                  <div className="key-label">{k.key}</div>
+                  <div className="key-label">{k.kbChar.toUpperCase()}</div>
                   <div className="note-name">{k.label}</div>
                 </div>
               );
@@ -164,7 +176,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
                   onMouseLeave={() => isActive && handleNoteOff(note)}
                   onTouchStart={(e) => { e.preventDefault(); handleNoteOn(note); }}
                   onTouchEnd={(e) => { e.preventDefault(); handleNoteOff(note); }}>
-                  <div className="key-label">{k.key}</div>
+                  <div className="key-label">{k.kbChar.toUpperCase()}</div>
                 </div>
               );
             }
