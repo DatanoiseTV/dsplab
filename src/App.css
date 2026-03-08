@@ -273,8 +273,7 @@
   display: flex;
   overflow-x: auto;
   width: 100%;
-  background: #111;
-  padding: 10px 0;
+  background: #000;
   border-radius: 4px;
 }
 
@@ -286,34 +285,51 @@
   100% { left: 100%; }
 }
 
-/* React Piano Overrides */
+/* React Piano Overrides - Professional Compact Theme */
 .ReactPiano__Keyboard {
-  border-top: 1px solid #333;
-  font-family: inherit;
+  background: transparent !important;
+  border: none !important;
+}
+
+.ReactPiano__Key {
+  transition: all 0.05s ease-out;
 }
 
 .ReactPiano__Key--white {
-  background: linear-gradient(to bottom, #eee 0%, #fff 100%) !important;
-  border: 1px solid #ccc !important;
+  background: linear-gradient(to bottom, #dcdcdc 0%, #ffffff 100%) !important;
+  border: 1px solid #bbb !important;
   border-top: none !important;
-  border-radius: 0 0 3px 3px !important;
+  border-radius: 0 0 2px 2px !important;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,0.5), 0 2px 2px rgba(0,0,0,0.2) !important;
 }
 
 .ReactPiano__Key--white.ReactPiano__Key--active {
-  background: linear-gradient(to bottom, #ffcc00 0%, #ffaa00 100%) !important;
+  background: linear-gradient(to bottom, #ffcc00 0%, #ff9900 100%) !important;
   border-color: #ccaa00 !important;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,0.3) !important;
+  transform: translateY(1px);
 }
 
 .ReactPiano__Key--black {
   background: linear-gradient(to bottom, #444 0%, #111 100%) !important;
   border: 1px solid #000 !important;
   border-top: none !important;
-  border-radius: 0 0 2px 2px !important;
-  box-shadow: 0 3px 6px rgba(0,0,0,0.6) !important;
+  border-radius: 0 0 1px 1px !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.8) !important;
   z-index: 10 !important;
+  height: 60% !important; /* Make black keys shorter */
 }
 
 .ReactPiano__Key--black.ReactPiano__Key--active {
   background: linear-gradient(to bottom, #ff4444 0%, #cc0000 100%) !important;
   border-color: #aa0000 !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.5) !important;
+}
+
+/* Remove default shortcut labels if they are large/ugly */
+.ReactPiano__NoteLabel {
+  font-size: 7px !important;
+  color: #888 !important;
+  bottom: 2px !important;
+  text-transform: uppercase;
 }

@@ -3,7 +3,6 @@ import { Keyboard, MousePointer2, ChevronLeft, ChevronRight, Volume2, Volume1 } 
 import { Knob } from './Knob';
 // @ts-ignore
 import { Piano, KeyboardShortcuts, MidiNumbers } from 'react-piano';
-import 'react-piano/dist/styles.css';
 
 interface VirtualMIDIProps {
   onCC: (cc: number, value: number) => void;
@@ -11,6 +10,8 @@ interface VirtualMIDIProps {
   onNoteOff: (note: number) => void;
   ccLabels: Record<number, string>;
 }
+
+const KEY_WIDTH = 20; // Targeted width for a white key
 
 const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, ccLabels }) => {
   const [kbEnabled, setKbEnabled] = useState(false);
@@ -20,6 +21,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
   
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
+  const [numWhiteKeys, setNumWhiteKeys] = useState(25);
 
   useEffect(() => {
     setCcValues(prev => {
@@ -35,7 +37,12 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
-      if (entries[0]) setWidth(entries[0].contentRect.width);
+      if (entries[0]) {
+        const newWidth = entries[0].contentRect.width;
+        setWidth(newWidth);
+        // Calculate how many white keys fit at ~20px each
+        setNumWhiteKeys(Math.floor((newWidth - 20) / KEY_WIDTH));
+      }
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
@@ -46,8 +53,14 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
     onCC(cc, val);
   };
 
-  const firstNote = MidiNumbers.fromNote(`C${octave - 1}`);
-  const lastNote = MidiNumbers.fromNote(`C${octave + 1}`);
+  // Starting MIDI number based on octave
+  const startMidi = (octave + 1) * 12; 
+  const firstNote = startMidi;
+  
+  // Calculate end note based on how many white keys we can fit
+  // Roughly 7 white keys per 12 chromatic notes
+  const totalNotes = Math.floor((numWhiteKeys / 7) * 12);
+  const lastNote = Math.min(127, firstNote + totalNotes);
 
   const keyboardShortcuts = KeyboardShortcuts.create({
     firstNote: firstNote,
@@ -61,7 +74,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
         <div className="midi-group">
           <span className="mini-label">OCTAVE</span>
           <div className="stepper">
-            <ChevronLeft size={10} style={{ cursor: 'pointer' }} onClick={() => setOctave(o => Math.max(1, o - 1))} />
+            <ChevronLeft size={10} style={{ cursor: 'pointer' }} onClick={() => setOctave(o => Math.max(0, o - 1))} />
             <span className="stepper-value">{octave - 2}</span>
             <ChevronRight size={10} style={{ cursor: 'pointer' }} onClick={() => setOctave(o => Math.min(8, o + 1))} />
           </div>
@@ -97,7 +110,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
         })}
       </div>
 
-      <div className="keyboard-container" ref={containerRef} style={{ height: '70px', background: '#111', padding: '5px 10px' }}>
+      <div className="keyboard-container" ref={containerRef} style={{ height: '60px', background: '#000', padding: '5px 10px', overflow: 'hidden' }}>
         <Piano
           noteRange={{ first: firstNote, last: lastNote }}
           width={width - 20}
