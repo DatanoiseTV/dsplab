@@ -33,6 +33,7 @@ class VultProcessor extends AudioWorkletProcessor {
           if (typeof initFn === 'function') initFn.call(this.vultInstance);
           this.port.postMessage({ type: 'status', success: true });
         } catch (err) {
+          console.error("[Worklet] Update Error:", err);
           this.port.postMessage({ type: 'status', success: false, error: err.toString() });
         }
       } else if (type === 'setSources') {
@@ -48,7 +49,7 @@ class VultProcessor extends AudioWorkletProcessor {
         });
       } else if (type === 'trigger') {
         if (this.genStates[data.index] !== undefined) {
-          this.genStates[data.index] = 1.0; // Trigger impulse or restart step/sweep
+          this.genStates[data.index] = 1.0; 
         }
       } else if (type === 'noteOn' || type === 'noteOff' || type === 'controlChange') {
         if (this.vultInstance) {
@@ -94,12 +95,11 @@ class VultProcessor extends AudioWorkletProcessor {
           else inputValues.push(0);
         } else if (src.type === 'impulse') {
           inputValues.push(this.genStates[s]);
-          this.genStates[s] = 0; // One-shot
+          this.genStates[s] = 0;
         } else if (src.type === 'step') {
-          inputValues.push(this.genStates[s]); // Persists until re-triggered
+          inputValues.push(this.genStates[s]);
         } else if (src.type === 'sweep') {
-          // Logarithmic sweep 20Hz -> 20kHz
-          const duration = src.value || 2.0; // seconds
+          const duration = src.value || 2.0;
           this.phases[s] += 1.0 / (duration * this.sampleRate);
           if (this.phases[s] > 1.0) this.phases[s] = 1.0;
           const freq = 20 * Math.pow(1000, this.phases[s]);
@@ -121,10 +121,9 @@ class VultProcessor extends AudioWorkletProcessor {
           try {
             const result = processFn.apply(this.vultInstance, inputValues);
             
-            // Collect Probes at Sample Rate
             this.activeProbes.forEach(p => {
               const val = this.vultInstance[p] !== undefined ? this.vultInstance[p] : (this.vultInstance.context ? this.vultInstance.context[p] : 0);
-              this.probeBuffers[p][this.bufferIdx] = val;
+              if (this.probeBuffers[p]) this.probeBuffers[p][this.bufferIdx] = val;
             });
             this.bufferIdx = (this.bufferIdx + 1) % this.bufferSize;
 
@@ -147,7 +146,7 @@ class VultProcessor extends AudioWorkletProcessor {
     }
 
     // TELEMETRY & PROBE SYNC
-    if (this.telemetryCounter++ > 20) {
+    if (this.vultInstance && this.telemetryCounter++ > 20) {
       this.telemetryCounter = 0;
       const state = {};
       if (this.vultInstance.context) {
@@ -162,7 +161,6 @@ class VultProcessor extends AudioWorkletProcessor {
         if (typeof val === 'number' || typeof val === 'boolean') state[key] = val;
       }
       
-      // Send telemetry and audio-rate probe buffers
       this.port.postMessage({ 
         type: 'telemetry', 
         state,
