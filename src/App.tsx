@@ -432,24 +432,23 @@ const App: React.FC = () => {
 
   const parseVultCCs = useCallback((vultCode: string) => {
     const ccMap: Record<number, string> = {};
-    // Search for CC patterns globally: c == 30, control == 30, etc.
-    // Matches: if (c == 30) { var = ... } // Label
-    // Matches: else if (control == 31) var = ...; // Label
-    const regex = /(?:c|control)\s*==\s*(\d+)[\s\S]*?(?:\{|)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=[^;]+;?\s*(?:\s*\}|)\s*(?:\/\/+(.*))?/g;
+    // Simpler regex to find CC assignments with optional comments
+    const regex = /(?:c|control)\s*==\s*(\d+)[\s\S]*?([a-zA-Z_]\w*)\s*=[^;]+;\s*(?:\s*\}|)\s*(?:\/\/+(.*))?/g;
     
     let match;
-    // Reset regex lastIndex because of global flag
     regex.lastIndex = 0;
-    
     while ((match = regex.exec(vultCode)) !== null) {
       const cc = parseInt(match[1]);
       const varName = match[2];
       const comment = match[3]?.trim();
       
-      // Filter out common noise if the regex over-matches
-      if (varName && !['if', 'else', 'val', 'mem', 'real', 'int', 'bool'].includes(varName)) {
+      if (varName && !['if', 'else', 'val', 'mem', 'real', 'int', 'bool', 'return'].includes(varName)) {
         ccMap[cc] = comment || varName.toUpperCase();
       }
+    }
+    // Fallback if nothing found
+    if (Object.keys(ccMap).length === 0) {
+      return { 30: 'SAW/SQR', 31: 'SINE LVL', 32: 'PWM AMT', 35: 'LFO RATE' };
     }
     return ccMap;
   }, []);

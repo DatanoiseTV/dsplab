@@ -11,8 +11,6 @@ interface VirtualMIDIProps {
   ccLabels: Record<number, string>;
 }
 
-const KEY_WIDTH = 20; // Targeted width for a white key
-
 const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, ccLabels }) => {
   const [kbEnabled, setKbEnabled] = useState(false);
   const [octave, setOctave] = useState(3);
@@ -20,8 +18,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
   const [ccValues, setCcValues] = useState<Record<number, number>>({});
   
   const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(800);
-  const [numWhiteKeys, setNumWhiteKeys] = useState(25);
+  const [width, setWidth] = useState(0);
 
   useEffect(() => {
     setCcValues(prev => {
@@ -36,15 +33,12 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      if (entries[0]) {
-        const newWidth = entries[0].contentRect.width;
-        setWidth(newWidth);
-        // Calculate how many white keys fit at ~20px each
-        setNumWhiteKeys(Math.floor((newWidth - 20) / KEY_WIDTH));
-      }
-    });
+    const updateWidth = () => {
+      if (containerRef.current) setWidth(containerRef.current.offsetWidth);
+    };
+    const observer = new ResizeObserver(updateWidth);
     observer.observe(containerRef.current);
+    updateWidth();
     return () => observer.disconnect();
   }, []);
 
@@ -53,14 +47,8 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
     onCC(cc, val);
   };
 
-  // Starting MIDI number based on octave
-  const startMidi = (octave + 1) * 12; 
-  const firstNote = startMidi;
-  
-  // Calculate end note based on how many white keys we can fit
-  // Roughly 7 white keys per 12 chromatic notes
-  const totalNotes = Math.floor((numWhiteKeys / 7) * 12);
-  const lastNote = Math.min(127, firstNote + totalNotes);
+  const firstNote = MidiNumbers.fromNote(`C${octave - 1}`);
+  const lastNote = MidiNumbers.fromNote(`C${octave + 1}`);
 
   const keyboardShortcuts = KeyboardShortcuts.create({
     firstNote: firstNote,
@@ -74,7 +62,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
         <div className="midi-group">
           <span className="mini-label">OCTAVE</span>
           <div className="stepper">
-            <ChevronLeft size={10} style={{ cursor: 'pointer' }} onClick={() => setOctave(o => Math.max(0, o - 1))} />
+            <ChevronLeft size={10} style={{ cursor: 'pointer' }} onClick={() => setOctave(o => Math.max(1, o - 1))} />
             <span className="stepper-value">{octave - 2}</span>
             <ChevronRight size={10} style={{ cursor: 'pointer' }} onClick={() => setOctave(o => Math.min(8, o + 1))} />
           </div>
@@ -110,14 +98,16 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
         })}
       </div>
 
-      <div className="keyboard-container" ref={containerRef} style={{ height: '60px', background: '#000', padding: '5px 10px', overflow: 'hidden' }}>
-        <Piano
-          noteRange={{ first: firstNote, last: lastNote }}
-          width={width - 20}
-          playNote={(midiNumber: number) => onNoteOn(midiNumber, velocity)}
-          stopNote={(midiNumber: number) => onNoteOff(midiNumber)}
-          keyboardShortcuts={kbEnabled ? keyboardShortcuts : []}
-        />
+      <div className="keyboard-container" ref={containerRef} style={{ height: '80px', background: '#000', padding: '5px 10px' }}>
+        {width > 0 && (
+          <Piano
+            noteRange={{ first: firstNote, last: lastNote }}
+            width={width - 20}
+            playNote={(midiNumber: number) => onNoteOn(midiNumber, velocity)}
+            stopNote={(midiNumber: number) => onNoteOff(midiNumber)}
+            keyboardShortcuts={kbEnabled ? keyboardShortcuts : []}
+          />
+        )}
       </div>
     </div>
   );
