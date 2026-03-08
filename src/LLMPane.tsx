@@ -201,6 +201,17 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   const getToolsDef = () => {
     return [
       {
+        name: "complete_task",
+        description: "Signals that the requested engineering goal is finished and has been verified. You MUST call this to end your autonomous loop. Provide a concise summary of the verification results.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            verification_summary: { type: "STRING", description: "Technical proof that the code works (e.g. 'SNR is 80dB, harmonic peaks verified')." }
+          },
+          required: ["verification_summary"]
+        }
+      },
+      {
         name: "replace_function",
         description: "Replaces the entire body of a specific function by its name. This is faster and safer than line-based editing for functional updates.",
         parameters: {
@@ -846,8 +857,9 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           };
         });
 
-        if (functionCalls.length > 0) {          let functionResponses: MessagePart[] = [];
-          
+        if (functionCalls.length > 0) {
+          let functionResponses: MessagePart[] = [];
+          let isFinalizing = false;          
           const toolLabels: Record<string, string> = {
             'get_current_code': '[RESEARCH] Reading source code context',
             'grep_search': '[RESEARCH] Searching patterns',
@@ -1174,6 +1186,10 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               addDisplayMsg('system', `[STATUS] Storing snapshot: "${fc.args.message}"`);
               onSaveSnapshot(fc.args.message);
               result = { success: true };
+            } else if (name === 'complete_task') {
+              addDisplayMsg('system', `[STATUS] Agent signaling task completion: ${fc.args.verification_summary}`);
+              result = { success: true };
+              isFinalizing = true;
             } else if (name === 'ask_user') {
               const question = fc.args.question;
               setStatus("User input required.");
@@ -1193,12 +1209,18 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               thought_signature: fc.thought_signature,
               thoughtSignature: fc.thought_signature
             } as any);
-          }
-          currentConversation.push({ role: 'user', parts: functionResponses });
-        } else {
-          break; // Agent finished
-        }
-      }
+            }
+            currentConversation.push({ role: 'user', parts: functionResponses });
+            if (isFinalizing) break;
+            } else {
+            // STALL DETECTION: Auto-nudge if only text was returned
+            addDisplayMsg('system', "[STATUS] Stall detected. Nudging agent to continue...");
+            currentConversation.push({ 
+            role: 'user', 
+            parts: [{ text: "You provided only text. PROCEED IMMEDIATELY to implement or verify. DO NOT stop until you call 'complete_task'." }] 
+            });
+            continue;
+            }      }
       
       if (turnCount >= MAX_TURNS) {
         addDisplayMsg('system', `⚠️ Maximum turn limit (${MAX_TURNS}) reached. The agent was interrupted to prevent an infinite loop.`);
@@ -1322,12 +1344,13 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             position: 'relative'
           }}>
             {m.role === 'thought' ? (
-              <div>
-                <div onClick={() => toggleThought(m.id)} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none' }}>
-                  {(expandedThoughts.has(m.id) || m.isStreaming) ? <ChevronDown size={10} /> : <ChevronRight size={10} />} THOUGHTS
+              <div style={{ opacity: m.isStreaming ? 1 : 0.7 }}>
+                <div onClick={() => toggleThought(m.id)} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none', color: m.isStreaming ? '#ff4444' : '#555' }}>
+                  {(expandedThoughts.has(m.id) || m.isStreaming) ? <ChevronDown size={10} /> : <ChevronRight size={10} />} 
+                  <span style={{ fontSize: '9px', fontWeight: 'bold' }}>REASONING {m.isStreaming && "(SCANNING...)"}</span>
                 </div>
                 {(expandedThoughts.has(m.id) || m.isStreaming) && (
-                  <div style={{ marginTop: '4px', borderTop: '1px solid #222', paddingTop: '4px', color: '#666' }}>{m.content}</div>
+                  <div style={{ marginTop: '4px', borderTop: '1px solid #222', paddingTop: '4px', color: '#666', fontStyle: 'italic' }}>{m.content}</div>
                 )}
               </div>
             ) : (              <>
