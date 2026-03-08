@@ -149,11 +149,16 @@ export class AudioEngine {
 
   public async updateCode(vultCode: string) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
       const response = await fetch('/api/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: vultCode })
+        body: JSON.stringify({ code: vultCode }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const text = await response.text();

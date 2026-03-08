@@ -47,6 +47,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [expandedThoughts, setExpandedThoughts] = useState<Set<string>>(new Set());
   const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 });
+  const [currentTurn, setCurrentTurn] = useState(0);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const codeRef = useRef(currentCode);
@@ -392,10 +393,15 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   const processAgentLoop = async (initialMessages: Message[]) => {
     let currentConversation = [...initialMessages];
     stopFlagRef.current = false;
+    let turnCount = 0;
+    const MAX_TURNS = 30;
+    setCurrentTurn(0);
     
     try {
-      while (!stopFlagRef.current) {
-        setStatus("Thinking...");
+      while (!stopFlagRef.current && turnCount < MAX_TURNS) {
+        turnCount++;
+        setCurrentTurn(turnCount);
+        setStatus(`Thinking (Turn ${turnCount})...`);
         
         let modelParts: MessagePart[] = [];
         let currentTextId = "";
@@ -619,7 +625,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               result = { success: true };
             } else if (name === 'ask_user') {
               const question = fc.args.question;
-              setStatus("Waiting for your response...");
+              setStatus("User input required.");
               setIsLoading(false); 
               addDisplayMsg('assistant', question, undefined, false, fc.args.options);
               const userResponse = await new Promise<string>((resolve) => {
@@ -627,7 +633,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               });
               askUserResolverRef.current = null;
               setIsLoading(true); 
-              setStatus("Thinking...");
+              setStatus(`Thinking (Turn ${turnCount})...`);
               result = { response: userResponse };
             }
 
@@ -638,12 +644,20 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           break; // Agent finished
         }
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        addDisplayMsg('assistant', `⚠️ Error: ${err.message}`);
-        console.error("Agent Error:", err);
+      
+      if (turnCount >= MAX_TURNS) {
+        addDisplayMsg('system', "⚠️ Agent reached maximum turn limit (30). Interrupted for safety.");
+      } else if (!stopFlagRef.current) {
+        addDisplayMsg('system', "🏁 Agent cycle complete.");
       }
-    } finally {
+      } catch (err: any) {
+      if (err.name === 'AbortError') {
+        addDisplayMsg('system', "🛑 Operation stopped by user.");
+      } else {
+        addDisplayMsg('assistant', `⚠️ Loop Error: ${err.message}`);
+        console.error("Agent Loop Error:", err);
+      }
+      } finally {
       setIsLoading(false);
       setStatus(null);
     }
@@ -688,7 +702,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px' }}>Vult Agent</span>
           </div>
           <div style={{ fontSize: '8px', color: '#555', marginTop: '2px', fontFamily: 'monospace' }}>
-            TOKENS: {tokens.total.toLocaleString()} (P:{tokens.prompt.toLocaleString()} C:{tokens.completion.toLocaleString()})
+            TOKENS: {tokens.total.toLocaleString()} (P:{tokens.prompt.toLocaleString()} C:{tokens.completion.toLocaleString()}) {currentTurn > 0 && `| TURN: ${currentTurn}/20`}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
