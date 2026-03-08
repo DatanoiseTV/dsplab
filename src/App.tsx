@@ -637,7 +637,19 @@ const App: React.FC = () => {
       setDiffMode(true);
     }
     setCode(newCode);
-    return { success: true };
+    
+    // Trial compilation to give agent feedback
+    const result = await audioEngineRef.current.updateCode(newCode);
+    if (!result.success) {
+      const marker = parseVultError(result.error);
+      if (marker) setEditorMarkers([marker]);
+      setStatus('Compile Error');
+    } else {
+      setEditorMarkers([]);
+      setStatus('Trial Compile OK');
+    }
+    
+    return result;
   };
 
   const handleAcceptDiff = async () => {

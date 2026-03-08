@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, Settings, Activity, StopCircle, ChevronDown, ChevronRight, User, Bot } from 'lucide-react';
+import { Send, Loader2, Settings, Activity, StopCircle, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface LLMPaneProps {
   currentCode: string;
@@ -44,6 +44,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   const [modelName, setModelName] = useState('gemini-2.0-flash-lite-preview-02-05');
   const [showSettings, setShowSettings] = useState(false);
   const [expandedThoughts, setExpandedThoughts] = useState<Set<string>>(new Set());
+  const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 });
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const codeRef = useRef(currentCode);
@@ -64,6 +65,9 @@ const LLMPane: React.FC<LLMPaneProps> = ({
 
     const savedModel = localStorage.getItem('llm_model_name');
     if (savedModel) setModelName(savedModel);
+
+    const savedTokens = localStorage.getItem('llm_tokens');
+    if (savedTokens) setTokens(JSON.parse(savedTokens));
   }, []);
 
   const scrollToBottom = () => {
@@ -83,6 +87,19 @@ const LLMPane: React.FC<LLMPaneProps> = ({
     localStorage.setItem('llm_endpoint', newEndpoint);
     localStorage.setItem('llm_api_key', key);
     localStorage.setItem('llm_model_name', model);
+  };
+
+  const updateTokens = (usage: any) => {
+    if (!usage) return;
+    setTokens(prev => {
+      const next = {
+        prompt: prev.prompt + (usage.prompt_token_count || usage.prompt_tokens || 0),
+        completion: prev.completion + (usage.candidates_token_count || usage.completion_tokens || 0),
+        total: prev.total + (usage.total_token_count || usage.total_tokens || 0)
+      };
+      localStorage.setItem('llm_tokens', JSON.stringify(next));
+      return next;
+    });
   };
 
   const toggleThought = (id: string) => {
@@ -224,18 +241,29 @@ const LLMPane: React.FC<LLMPaneProps> = ({
       },
       {
         name: "ask_user",
-        description: "Asks the user a question.",
+        description: "Asks the user a question. Can include multiple choice options.",
         parameters: {
           type: "OBJECT",
           properties: {
-            question: { type: "STRING", description: "The question to ask." }
+            question: { type: "STRING", description: "The question to ask." },
+            options: { 
+              type: "ARRAY", 
+              items: { 
+                type: "OBJECT",
+                properties: {
+                  label: { type: "STRING" },
+                  value: { type: "STRING" }
+                }
+              },
+              description: "Optional list of choices for the user."
+            }
           },
           required: ["question"]
         }
       },
       {
         name: "user_message",
-        description: "Displays a status message or update to the user.",
+        description: "Displays a status message or update to the user about what you are currently doing.",
         parameters: {
           type: "OBJECT",
           properties: {
@@ -250,7 +278,9 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   const callGeminiStream = async (currentMessages: Message[]) => {
     const payload = {
       contents: currentMessages,
-      systemInstruction: { parts: [{ text: systemPrompt }] },
+      systemInstruction: { 
+        parts: [{ text: systemPrompt + "\nALWAYS be verbose and detailed about your DSP logic and actions. Explain WHY you are making changes." }] 
+      },
       tools: [{ functionDeclarations: getToolsDef() }],
       generationConfig: { temperature: 0.1 }
     };
@@ -271,9 +301,8 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   };
 
   const callOpenAIStream = async (currentMessages: Message[]) => {
-    // Convert Gemini format to OpenAI format
     const openaiMessages = [
-      { role: "system", content: systemPrompt }
+      { role: "system", content: systemPrompt + "\nALWAYS be verbose and detailed about your DSP logic and actions. Explain WHY you are making changes." }
     ];
 
     for (const msg of currentMessages) {
@@ -371,6 +400,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.substring(6));
+                  if (data.usageMetadata) updateTokens(data.usageMetadata);
                   const incomingParts = data.candidates?.[0]?.content?.parts || [];
                   for (const part of incomingParts) {
                     modelParts.push(part);
@@ -390,12 +420,10 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             }
           }
         } else {
-          // OpenAI / LM Studio / Ollama Stream
           const stream = await callOpenAIStream(currentConversation);
           if (!stream) break;
           const reader = stream.getReader();
           const decoder = new TextDecoder();
-          
           let currentToolCall: any = null;
 
           while (true) {
@@ -408,30 +436,21 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               if (line.startsWith('data: ') && line.trim() !== 'data: [DONE]') {
                 try {
                   const data = JSON.parse(line.substring(6));
+                  if (data.usage) updateTokens(data.usage);
                   const delta = data.choices?.[0]?.delta;
-                  
                   if (delta) {
                     if (delta.content) {
                       setStatus("Typing...");
                       if (!currentTextId) currentTextId = addDisplayMsg('assistant', "", undefined, true);
                       addDisplayMsg('assistant', delta.content, currentTextId, true);
-                      
-                      // Find or create the text part
                       let textPart = modelParts.find(p => p.text !== undefined);
-                      if (!textPart) {
-                        textPart = { text: "" };
-                        modelParts.push(textPart);
-                      }
+                      if (!textPart) { textPart = { text: "" }; modelParts.push(textPart); }
                       textPart.text += delta.content;
                     }
-                    
                     if (delta.tool_calls) {
                       for (const tc of delta.tool_calls) {
-                        if (tc.function?.name) {
-                          currentToolCall = { name: tc.function.name, argsString: tc.function.arguments || "" };
-                        } else if (tc.function?.arguments && currentToolCall) {
-                          currentToolCall.argsString += tc.function.arguments;
-                        }
+                        if (tc.function?.name) { currentToolCall = { name: tc.function.name, argsString: tc.function.arguments || "" }; }
+                        else if (tc.function?.arguments && currentToolCall) { currentToolCall.argsString += tc.function.arguments; }
                       }
                     }
                   }
@@ -439,18 +458,9 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               }
             }
           }
-
           if (currentToolCall) {
-            try {
-              modelParts.push({
-                functionCall: {
-                  name: currentToolCall.name,
-                  args: JSON.parse(currentToolCall.argsString)
-                }
-              });
-            } catch(e) {
-              console.error("Failed to parse tool args", currentToolCall.argsString);
-            }
+            try { modelParts.push({ functionCall: { name: currentToolCall.name, args: JSON.parse(currentToolCall.argsString) } }); }
+            catch(e) { console.error("Failed to parse tool args", currentToolCall.argsString); }
           }
         }
 
@@ -506,7 +516,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
                 const updatedCode = [...before, new_code, ...after].join('\n');
                 const res = await onUpdateCode(updatedCode);
                 if (res.success) {
-                  addDisplayMsg('system', `✅ Lines replaced and compiled.`);
+                  addDisplayMsg('system', `✅ Lines replaced.`);
                   result = { success: true };
                 } else {
                   addDisplayMsg('system', `❌ Edit failed:\n${res.error}`);
@@ -551,7 +561,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               result = { success: true };
             } else if (name === 'ask_user') {
               setStatus("Waiting for user...");
-              addDisplayMsg('assistant', fc.args.question);
+              addDisplayMsg('assistant', fc.args.question, undefined, false, fc.args.options);
               const userResponse = await new Promise<string>((resolve) => {
                 askUserResolverRef.current = resolve;
               });
@@ -586,19 +596,16 @@ const LLMPane: React.FC<LLMPaneProps> = ({
       askUserResolverRef.current(userInput);
       return;
     }
-
     if (!input.trim() || isLoading) return;
     const userInput = input;
     setInput('');
     setIsLoading(true);
     addDisplayMsg('user', userInput);
-    
     if (provider === 'gemini' && !apiKey) {
-      addDisplayMsg('assistant', "API key missing for Gemini. Click the Settings icon.");
+      addDisplayMsg('assistant', "API key missing. Click Settings.");
       setIsLoading(false);
       return;
     }
-
     const newUserMsg: Message = { role: 'user', parts: [{ text: userInput }] };
     processAgentLoop([...messages, newUserMsg]);
   };
@@ -613,9 +620,14 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid #333', background: '#1e1e1e' }}>
       <div style={{ padding: '12px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1a1a1a' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Activity size={14} color={isLoading ? "#00ff00" : "#666"} className={isLoading ? "animate-spin" : ""} />
-          <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px' }}>Vult Agent</span>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Activity size={14} color={isLoading ? "#00ff00" : "#666"} className={isLoading ? "animate-spin" : ""} />
+            <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px' }}>Vult Agent</span>
+          </div>
+          <div style={{ fontSize: '8px', color: '#555', marginTop: '2px' }}>
+            TOKENS: {tokens.total.toLocaleString()} (P: {tokens.prompt.toLocaleString()} / C: {tokens.completion.toLocaleString()})
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {isLoading && (
@@ -634,39 +646,24 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           <div style={{ display: 'flex', gap: '10px' }}>
             <label style={{ fontSize: '9px', color: '#888', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <input type="radio" checked={provider === 'gemini'} onChange={() => handleSaveSettings('gemini', endpoint, apiKey, modelName)} />
-              GEMINI API
+              GEMINI
             </label>
             <label style={{ fontSize: '9px', color: '#888', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <input type="radio" checked={provider === 'openai'} onChange={() => handleSaveSettings('openai', endpoint, apiKey, modelName)} />
-              LOCAL / OPENAI
+              LOCAL/OAI
             </label>
           </div>
-          
           {provider === 'openai' && (
-            <>
-              <div style={{ fontSize: '9px', color: '#888', fontWeight: 'bold' }}>ENDPOINT URL</div>
-              <input type="text" placeholder="http://localhost:11434/v1/chat/completions" value={endpoint} onChange={(e) => handleSaveSettings(provider, e.target.value, apiKey, modelName)} style={{ background: '#111', border: '1px solid #444', color: '#fff', padding: '6px', borderRadius: '4px', fontSize: '11px', outline: 'none' }} />
-            </>
+            <input type="text" placeholder="Endpoint URL..." value={endpoint} onChange={(e) => handleSaveSettings(provider, e.target.value, apiKey, modelName)} style={{ background: '#111', border: '1px solid #444', color: '#fff', padding: '6px', borderRadius: '4px', fontSize: '11px', outline: 'none' }} />
           )}
-
-          <div style={{ fontSize: '9px', color: '#888', fontWeight: 'bold' }}>API KEY {provider === 'openai' && '(Optional)'}</div>
-          <input type="password" placeholder="Key..." value={apiKey} onChange={(e) => handleSaveSettings(provider, endpoint, e.target.value, modelName)} style={{ background: '#111', border: '1px solid #444', color: '#fff', padding: '6px', borderRadius: '4px', fontSize: '11px', outline: 'none' }} />
-          
-          <div style={{ fontSize: '9px', color: '#888', fontWeight: 'bold' }}>MODEL</div>
+          <input type="password" placeholder="API Key..." value={apiKey} onChange={(e) => handleSaveSettings(provider, endpoint, e.target.value, modelName)} style={{ background: '#111', border: '1px solid #444', color: '#fff', padding: '6px', borderRadius: '4px', fontSize: '11px', outline: 'none' }} />
           <input type="text" placeholder="Model ID..." value={modelName} onChange={(e) => handleSaveSettings(provider, endpoint, apiKey, e.target.value)} style={{ background: '#111', border: '1px solid #444', color: '#fff', padding: '6px', borderRadius: '4px', fontSize: '11px', outline: 'none' }} />
         </div>
       )}
 
       <div style={{ height: '2px', width: '100%', background: '#1a1a1a', position: 'relative', overflow: 'hidden' }}>
         {isLoading && (
-          <div style={{ 
-            position: 'absolute', 
-            height: '100%', 
-            width: '30%', 
-            background: '#007acc', 
-            boxShadow: '0 0 10px #007acc',
-            animation: 'agent-progress 1.5s infinite linear' 
-          }} />
+          <div style={{ position: 'absolute', height: '100%', width: '30%', background: '#007acc', boxShadow: '0 0 10px #007acc', animation: 'agent-progress 1.5s infinite linear' }} />
         )}
       </div>
 
@@ -690,12 +687,8 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           }}>
             {m.role === 'thought' ? (
               <div>
-                <div 
-                  onClick={() => toggleThought(m.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none' }}
-                >
-                  {expandedThoughts.has(m.id) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                  THOUGHTS
+                <div onClick={() => toggleThought(m.id)} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none' }}>
+                  {expandedThoughts.has(m.id) ? <ChevronDown size={10} /> : <ChevronRight size={10} />} THOUGHTS
                 </div>
                 {expandedThoughts.has(m.id) && (
                   <div style={{ marginTop: '4px', borderTop: '1px solid #222', paddingTop: '4px', color: '#666' }}>{m.content}</div>
@@ -704,19 +697,13 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             ) : (
               <>
                 <div style={{ position: 'absolute', top: '-14px', left: m.role === 'user' ? 'auto' : '4px', right: m.role === 'user' ? '4px' : 'auto', fontSize: '8px', color: '#555', fontWeight: 'bold' }}>
-                  {m.role === 'user' ? <><User size={8} style={{verticalAlign: 'middle'}} /> YOU</> : (m.role === 'assistant' ? <><Bot size={8} style={{verticalAlign: 'middle'}} /> VULT AGENT</> : '')}
+                  {m.role === 'user' ? 'YOU' : (m.role === 'assistant' ? 'VULT AGENT' : '')}
                 </div>
                 {m.content}
                 {m.choices && (
                   <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                     {m.choices.map(c => (
-                      <button 
-                        key={c.value} 
-                        onClick={() => handleChoice(c.value)}
-                        style={{ background: '#333', border: '1px solid #444', color: '#ffcc00', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}
-                      >
-                        {c.label}
-                      </button>
+                      <button key={c.value} onClick={() => handleChoice(c.value)} style={{ background: '#333', border: '1px solid #444', color: '#ffcc00', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>{c.label}</button>
                     ))}
                   </div>
                 )}
@@ -733,20 +720,8 @@ const LLMPane: React.FC<LLMPaneProps> = ({
       </div>
 
       <div style={{ padding: '12px', borderTop: '1px solid #333', display: 'flex', gap: '8px', background: '#1a1a1a' }}>
-        <input 
-          type="text" 
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder={askUserResolverRef.current ? "Type your answer..." : "Ask the Vult Agent..."}
-          disabled={isLoading && !askUserResolverRef.current}
-          style={{ flex: 1, background: '#252526', border: '1px solid #444', borderRadius: '20px', padding: '8px 16px', color: '#fff', fontSize: '13px', outline: 'none' }}
-        />
-        <button 
-          onClick={handleSend} 
-          disabled={(isLoading && !askUserResolverRef.current) || !input.trim()} 
-          style={{ background: (isLoading && !askUserResolverRef.current) || !input.trim() ? '#333' : '#007acc', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', transition: 'all 0.2s' }}
-        >
+        <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder={askUserResolverRef.current ? "Type your answer..." : "Ask the Vult Agent..."} disabled={isLoading && !askUserResolverRef.current} style={{ flex: 1, background: '#252526', border: '1px solid #444', borderRadius: '20px', padding: '8px 16px', color: '#fff', fontSize: '13px', outline: 'none' }} />
+        <button onClick={handleSend} disabled={(isLoading && !askUserResolverRef.current) || !input.trim()} style={{ background: (isLoading && !askUserResolverRef.current) || !input.trim() ? '#333' : '#007acc', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', transition: 'all 0.2s' }}>
           <Send size={18} />
         </button>
       </div>
