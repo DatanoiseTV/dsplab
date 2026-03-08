@@ -16,6 +16,12 @@ export const Knob: React.FC<KnobProps> = ({ value, min, max, label, onChange, si
   const startY = useRef(0);
   const startValue = useRef(0);
   const isFineMode = useRef(false);
+  
+  // Use a ref for onChange to prevent effect re-runs when parent passes new anonymous functions
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   const onMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -27,7 +33,6 @@ export const Knob: React.FC<KnobProps> = ({ value, min, max, label, onChange, si
   };
 
   const onTouchStart = (e: React.TouchEvent) => {
-    // Prevent scrolling while adjusting knob
     if (e.cancelable) e.preventDefault();
     setIsDragging(true);
     startY.current = e.touches[0].clientY;
@@ -36,29 +41,33 @@ export const Knob: React.FC<KnobProps> = ({ value, min, max, label, onChange, si
   };
 
   useEffect(() => {
-    const onMouseMove = (e: MouseEvent | TouchEvent) => {
-      if (!isDragging) return;
-      
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    if (!isDragging) return;
+
+    const handleMove = (clientY: number, shiftKey: boolean) => {
       const deltaY = startY.current - clientY;
       const range = max - min;
       
-      // Sensitivity adjustment: 
-      // Standard: 400 pixels for full range
-      // Fine (Shift): 2000 pixels for full range
-      const fine = ('shiftKey' in e && e.shiftKey) || isFineMode.current;
-      const pixelRange = fine ? 2000 : 400;
-      
+      // Standard: 400 pixels, Fine: 2000 pixels
+      const pixelRange = (shiftKey || isFineMode.current) ? 2000 : 400;
       const step = range / pixelRange;
-      let newValue = startValue.current + deltaY * step;
       
+      let newValue = startValue.current + deltaY * step;
       newValue = Math.max(min, Math.min(max, newValue));
       
       if (isFloat) {
-        onChange(newValue);
+        onChangeRef.current(newValue);
       } else {
-        onChange(Math.round(newValue));
+        onChangeRef.current(Math.round(newValue));
       }
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      handleMove(e.clientY, e.shiftKey);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+      handleMove(e.touches[0].clientY, false);
     };
 
     const onMouseUp = () => {
@@ -66,20 +75,18 @@ export const Knob: React.FC<KnobProps> = ({ value, min, max, label, onChange, si
       document.body.style.cursor = 'default';
     };
 
-    if (isDragging) {
-      window.addEventListener('mousemove', onMouseMove, { passive: false });
-      window.addEventListener('mouseup', onMouseUp);
-      window.addEventListener('touchmove', onMouseMove, { passive: false });
-      window.addEventListener('touchend', onMouseUp);
-    }
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onMouseUp);
     
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
-      window.removeEventListener('touchmove', onMouseMove);
+      window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onMouseUp);
     };
-  }, [isDragging, max, min, onChange, isFloat]);
+  }, [isDragging, max, min, isFloat]); // Removed onChangeRef.current as dependency
 
   // SVG angle calculation: -135 to 135 degrees (270 degree sweep)
   const angle = ((value - min) / (max - min)) * 270 - 135;
@@ -108,17 +115,12 @@ export const Knob: React.FC<KnobProps> = ({ value, min, max, label, onChange, si
           height: size, 
           position: 'relative', 
           cursor: 'ns-resize',
-          touchAction: 'none' // Critical for mobile
+          touchAction: 'none'
         }}
       >
         <svg width={size} height={size} viewBox="0 0 40 40">
-          {/* Knob Shadow */}
           <circle cx="20" cy="22" r="16" fill="rgba(0,0,0,0.3)" />
-          
-          {/* Knob Body */}
           <circle cx="20" cy="20" r="18" fill="#1a1a1a" stroke="#444" strokeWidth="1" />
-          
-          {/* Track background */}
           <path 
             d="M 10 32 A 16 16 0 1 1 30 32" 
             fill="none" 
@@ -126,8 +128,6 @@ export const Knob: React.FC<KnobProps> = ({ value, min, max, label, onChange, si
             strokeWidth="3" 
             strokeLinecap="round" 
           />
-          
-          {/* Value Track (Glow) */}
           <path 
             d="M 10 32 A 16 16 0 1 1 30 32" 
             fill="none" 
@@ -140,13 +140,8 @@ export const Knob: React.FC<KnobProps> = ({ value, min, max, label, onChange, si
               filter: `drop-shadow(0 0 2px ${color})` 
             }}
           />
-          
-          {/* Knob Cap / Face */}
           <g transform={`rotate(${angle} 20 20)`}>
-            <circle cx="20" cy="20" r="13" fill="linear-gradient(to bottom, #333, #222)" />
             <circle cx="20" cy="20" r="13" fill="#2a2a2a" stroke="#111" strokeWidth="0.5" />
-            
-            {/* Indicator Needle */}
             <rect x="19" y="6" width="2" height="10" rx="1" fill={color} />
             <rect x="19.5" y="6" width="1" height="10" rx="0.5" fill="rgba(255,255,255,0.3)" />
           </g>
