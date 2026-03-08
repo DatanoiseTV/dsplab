@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, Settings, Activity, StopCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Send, Loader2, Settings, Activity, StopCircle, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 
 interface LLMPaneProps {
   currentCode: string;
@@ -40,6 +40,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isInspirationLoading, setIsInspirationLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   
@@ -1271,6 +1272,58 @@ const LLMPane: React.FC<LLMPaneProps> = ({
     }
   };
 
+  const handleFeelCurious = async () => {
+    if (isLoading || isInspirationLoading) return;
+    setIsInspirationLoading(true);
+    addDisplayMsg('system', `[INSPIRATION] Consulting the DSP Architect for unique ideas...`);
+    
+    const inspirationPrompt = `You are a visionary DSP Architect. Come up with ONE highly creative, unique, and technically functional synthesizer or audio effect idea that can be implemented in Vult. 
+    Focus on interesting modulation, non-linearities, or physical modeling. 
+    Provide only a concise 2-3 sentence engineering brief. 
+    Example: 'A chaotic wavefolder where the folding threshold is modulated by a self-correcting feedback loop, creating complex organic timbres.'`;
+
+    try {
+      let idea = "";
+      if (provider === 'gemini') {
+        const payload = {
+          contents: [{ role: 'user', parts: [{ text: inspirationPrompt }] }],
+          generationConfig: { temperature: 0.9 }
+        };
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        idea = data.candidates?.[0]?.content?.parts?.[0]?.text || "A unique multi-stage resonator.";
+      } else {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: modelName,
+            messages: [{ role: 'user', content: inspirationPrompt }],
+            temperature: 0.9
+          })
+        });
+        const data = await response.json();
+        idea = data.choices?.[0]?.message?.content || "A unique grain-shuffler.";
+      }
+
+      setIsInspirationLoading(false);
+      addDisplayMsg('assistant', `💡 [IDEA] ${idea}`);
+      
+      // Pass the idea to the main agent loop
+      setIsLoading(true);
+      const newUserMsg: Message = { role: 'user', parts: [{ text: `I like that idea: "${idea}". Please implement it fully in Vult now.` }] };
+      processAgentLoop([...messages, newUserMsg]);
+
+    } catch (err: any) {
+      addDisplayMsg('system', `[ERROR] Failed to get inspiration: ${err.message}`);
+      setIsInspirationLoading(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid #333', background: '#1e1e1e' }}>
       <div style={{ padding: '12px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1a1a1a' }}>
@@ -1284,11 +1337,18 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            onClick={handleFeelCurious} 
+            disabled={isLoading || isInspirationLoading}
+            style={{ background: 'transparent', border: 'none', color: '#ffcc00', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+            title="I Feel Curious (Get Inspiration)"
+          >
+            <Sparkles size={16} />
+          </button>
           <button onClick={() => setShowSettings(!showSettings)} style={{ background: 'transparent', border: 'none', color: (provider === 'gemini' && apiKey) || provider === 'openai' ? '#00ff00' : '#888', cursor: 'pointer' }}>
             <Settings size={16} />
           </button>
-        </div>
-      </div>
+        </div>      </div>
       
       {showSettings && (
         <div style={{ padding: '12px', background: '#252526', borderBottom: '1px solid #333', display: 'flex', flexDirection: 'column', gap: '8px' }}>
