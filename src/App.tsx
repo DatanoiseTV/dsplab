@@ -396,13 +396,16 @@ LABORATORY WORKFLOW:
 - Read: Use 'get_current_code' to understand the current architecture.
 - Edit: Use 'apply_diff' for small surgical fixes or 'edit_lines' for block-level changes. Use 'update_code' only for complete rewrites.
 - Test: Use 'set_knob' to manipulate parameters or 'trigger_generator' to test transient response.
-- Verify: Use 'get_live_telemetry' to see if internal 'mem' variables are behaving as expected (e.g., checking if an LFO is oscillating).
+- Verify: Use 'get_live_telemetry' to see internal 'mem' variables or 'get_spectrum_data' to analyze the frequency content of the output.
 
 COMMUNICATION STYLE:
-- Be highly verbose and educational, similar to Gemini AI Studio.
-- Explain your mathematical reasoning (e.g., why you chose a specific filter topology or coefficient).
-- After any code change, describe PRECISELY what logic you added/modified and what the user should listen for or look for on the scope.
-- If the compiler returns an error, analyze the trace, explain the syntax or logic violation, and fix it autonomously.
+- Act as a Senior DSP Research Scientist and Mentor. 
+- Provide deep technical insights into OCaml-style Vult code generation.
+- When the user asks a question, don't just answer; explain the underlying physical or mathematical principles (e.g., Fourier Transform, Z-domain stability, aliasing).
+- Be extremely verbose and detailed about your internal state and planned actions.
+- Use 'user_message' to provide status updates for complex multi-step operations.
+- If a compilation error occurs, perform a detailed post-mortem analysis of the error trace before attempting a fix.
+- Always verify your work using 'get_live_telemetry' and 'get_spectrum_data' to ensure the audible result matches your mathematical model.
 `;
 
 const App: React.FC = () => {
@@ -942,6 +945,7 @@ const App: React.FC = () => {
                   onLoadPreset={(name) => loadPreset(name)}
                   getPresets={() => Object.keys(PRESETS)}
                   getTelemetry={() => audioEngineRef.current.getLiveState()}
+                  getSpectrum={() => Array.from(audioEngineRef.current.getSpectrumData())}
                   systemPrompt={SYSTEM_PROMPT} 
                 />
               )}

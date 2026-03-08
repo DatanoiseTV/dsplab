@@ -10,6 +10,7 @@ interface LLMPaneProps {
   onLoadPreset: (name: string) => void;
   getPresets: () => string[];
   getTelemetry: () => Record<string, any>;
+  getSpectrum: () => number[];
   systemPrompt: string;
 }
 
@@ -23,7 +24,7 @@ type Message = { role: 'user' | 'model', parts: MessagePart[] };
 
 const LLMPane: React.FC<LLMPaneProps> = ({ 
   currentCode, onUpdateCode, onSetKnob, onTriggerGenerator, 
-  onConfigureInput, onLoadPreset, getPresets, getTelemetry, systemPrompt 
+  onConfigureInput, onLoadPreset, getPresets, getTelemetry, getSpectrum, systemPrompt 
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -199,6 +200,18 @@ const LLMPane: React.FC<LLMPaneProps> = ({
         }
       },
       {
+        name: "send_midi_cc",
+        description: "Sends a general MIDI CC message (0-127). Values range from 0 to 127.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            cc: { type: "NUMBER", description: "The CC number (0-127)." },
+            value: { type: "NUMBER", description: "The value (0-127)." }
+          },
+          required: ["cc", "value"]
+        }
+      },
+      {
         name: "trigger_generator",
         description: "Triggers a laboratory generator (Impulse, Step, Sweep) on a specific input strip.",
         parameters: {
@@ -238,6 +251,11 @@ const LLMPane: React.FC<LLMPaneProps> = ({
       {
         name: "get_live_telemetry",
         description: "Retrieves the current values of all internal Vult variables (live telemetry).",
+        parameters: { type: "OBJECT", properties: {} }
+      },
+      {
+        name: "get_spectrum_data",
+        description: "Retrieves a snapshot of the current 1024-band frequency spectrum of the output signal. Use this to verify audio activity or filter performance.",
         parameters: { type: "OBJECT", properties: {} }
       },
       {
@@ -491,15 +509,15 @@ const LLMPane: React.FC<LLMPaneProps> = ({
                 const newCode = codeRef.current.replace(old_string, new_string);
                 const res = await onUpdateCode(newCode);
                 if (res.success) {
-                  addDisplayMsg('system', `✅ Applied diff.`);
-                  result = { success: true };
+                  addDisplayMsg('system', `✅ Applied diff. Trial compilation successful.`);
+                  result = { success: true, message: "Search-and-replace successful. Code is valid. Please verify the output on the scope." };
                 } else {
-                  addDisplayMsg('system', `❌ Diff failed:\n${res.error}`);
-                  result = { success: false, error: res.error };
+                  addDisplayMsg('system', `❌ Diff failed to compile:\n${res.error}`);
+                  result = { success: false, error: res.error, context: "Your surgical replacement caused a compilation error. Re-check the logic." };
                 }
               } else {
                 addDisplayMsg('system', `❌ Error: 'old_string' not found.`);
-                result = { success: false, error: "Pattern not found." };
+                result = { success: false, error: "Pattern not found. Ensure exact match including whitespace." };
               }
             } else if (name === 'edit_lines') {
               addDisplayMsg('system', `🛠️ Tool: edit_lines(${fc.args.start_line}-${fc.args.end_line})`);
@@ -511,11 +529,11 @@ const LLMPane: React.FC<LLMPaneProps> = ({
                 const updatedCode = [...before, new_code, ...after].join('\n');
                 const res = await onUpdateCode(updatedCode);
                 if (res.success) {
-                  addDisplayMsg('system', `✅ Lines replaced.`);
-                  result = { success: true };
+                  addDisplayMsg('system', `✅ Lines ${start_line}-${end_line} replaced. Trial compilation successful.`);
+                  result = { success: true, message: `Lines ${start_line}-${end_line} updated. Code is valid. You should now use get_live_telemetry or get_spectrum_data to verify behavior.` };
                 } else {
-                  addDisplayMsg('system', `❌ Edit failed:\n${res.error}`);
-                  result = { success: false, error: res.error };
+                  addDisplayMsg('system', `❌ Edit failed to compile:\n${res.error}`);
+                  result = { success: false, error: res.error, context: "The code you provided resulted in a compilation error. Please analyze the error and fix the logic." };
                 }
               } else {
                 addDisplayMsg('system', `❌ Invalid line numbers.`);
@@ -525,10 +543,10 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               addDisplayMsg('system', `🛠️ Tool: update_code`);
               const res = await onUpdateCode(fc.args.new_code);
               if (res.success) {
-                addDisplayMsg('system', `✅ Updated code.`);
-                result = { success: true };
+                addDisplayMsg('system', `✅ Code updated and trial-compiled.`);
+                result = { success: true, message: "Full code update successful. Waiting for user approval. Perform verification tools if needed." };
               } else {
-                addDisplayMsg('system', `❌ Failed:\n${res.error}`);
+                addDisplayMsg('system', `❌ Compilation failed:\n${res.error}`);
                 result = { success: false, error: res.error };
               }
             } else if (name === 'set_knob') {
@@ -551,6 +569,12 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               result = { presets: getPresets() };
             } else if (name === 'get_live_telemetry') {
               result = { telemetry: getTelemetry() };
+            } else if (name === 'get_spectrum_data') {
+              result = { spectrum: getSpectrum() };
+            } else if (name === 'send_midi_cc') {
+              addDisplayMsg('system', `🛠️ Tool: send_midi_cc(${fc.args.cc}, ${fc.args.value})`);
+              onSetKnob(fc.args.cc, fc.args.value);
+              result = { success: true };
             } else if (name === 'user_message') {
               addDisplayMsg('assistant', fc.args.message);
               result = { success: true };
