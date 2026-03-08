@@ -42,11 +42,7 @@ fun controlChange(control: int, value: int, channel: int) {
   return input * volume;
 }
 `,
-  "vs80": `// ============================================================================
-// VS80
-// ============================================================================
-
-// --- 1. UTILITIES & MATH ---
+  "vs80": `// --- 1. UTILITIES & MATH ---
 fun pitchToRate(pitch: real) : real @[table(size=127,min=0.0,max=127.0)] {
     return 8.1757989156 * exp(0.05776226505 * pitch) / 44100.0;
 }
@@ -351,20 +347,20 @@ and default() {
     // swept 12dB filters, and an envelope-driven ring modulation shimmer
     // on the attack of the note. Widened by the Symphonic Chorus.
 
-    saw_sqr_mix = 1.0; sine_lvl = 0.52;           // Heavy Saw/Square mixed with huge Pure Sine
-    pwm_amt = 0.01; lfo_rate = 0.05;               // Lush Pulse Width Modulation
+    saw_sqr_mix = 1.0; sine_lvl = 0.6;           // Heavy Saw/Square mixed with huge Pure Sine
+    pwm_amt = 0.02; lfo_rate = 0.15;               // Lush Pulse Width Modulation
     
-    hp_c = 0.0; hp_res = 0.4;                   // 12dB HPF cuts extreme mud, adds vocal growl
-    lp_c = 10.0; lp_res = 0.6;                   // 12dB LPF starts warm
-    eg_f = 2.0;                                  // Envelope sweeps the LPF open
+    hp_c = 30.0; hp_res = 0.4;                   // 12dB HPF cuts extreme mud, adds vocal growl
+    lp_c = 45.0; lp_res = 0.2;                   // 12dB LPF starts warm
+    eg_f = 0.8;                                  // Envelope sweeps the LPF open
     
-    eg_a = 0.0; eg_d = 0.3;                     // Sluggish, majestic brass attack
-    eg_s = 0.1; eg_r = 0.95;                     // Lingering, singing release
+    eg_a = 0.01; eg_d = 0.3;                     // Sluggish, majestic brass attack
+    eg_s = 0.5; eg_r = 0.35;                     // Lingering, singing release
     
-    rm_depth = 0.05;                             // Subtle Ring Mod Shimmer
-    rm_speed = 2.0; rm_env = 0.8;                // Envelope sweeps the Ring Mod frequency fast
+    rm_depth = 0.15;                             // Subtle Ring Mod Shimmer
+    rm_speed = 0.2; rm_env = 0.15;                // Envelope sweeps the Ring Mod frequency fast
     
-    symph_on = true;                             // SYMPHONIC CHORUS/TREMOLO ENGAGED
+    symph_on = false;                             // SYMPHONIC CHORUS/TREMOLO ENGAGED
 }
 `
 };
@@ -375,7 +371,7 @@ Entry: 'fun process(input: real, ...) : real'.
 `;
 
 const App: React.FC = () => {
-  const [code, setCode] = useState(PRESETS["Biquad Filter"]);
+  const [code, setCode] = useState(PRESETS["vs80"]);
   const [projectName, setProjectName] = useState("My Vult Project");
   const [savedProjects, setSavedProjects] = useState<string[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
