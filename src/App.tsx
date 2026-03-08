@@ -430,6 +430,25 @@ const App: React.FC = () => {
   const midiControllerRef = useRef<MIDIController | null>(null);
   const skipNextUpdateRef = useRef(false);
 
+  const parseVultCCs = useCallback((vultCode: string) => {
+    const ccMap: Record<number, string> = {};
+    const ccMatch = vultCode.match(/controlChange\s*\([^)]*\)\s*{([\s\S]*?)}/);
+    if (ccMatch) {
+      const body = ccMatch[1];
+      const regex = /(?:if|else if)\s*\(\s*(?:c|control)\s*==\s*(\d+)\s*\)\s*{\s*([^=;\s]+)\s*=[^;]+;\s*}\s*(?:\/\/+(.*))?/g;
+      let match;
+      while ((match = regex.exec(body)) !== null) {
+        const cc = parseInt(match[1]);
+        const varName = match[2].trim();
+        const comment = match[3]?.trim();
+        ccMap[cc] = comment || varName.toUpperCase();
+      }
+    }
+    return ccMap;
+  }, []);
+
+  const [ccLabels, setCcLabels] = useState<Record<number, string>>({});
+
   const parseVultInputs = useCallback((vultCode: string) => {
     const match = vultCode.match(/fun\s+process\s*\(([^)]*)\)/);
     if (!match) return [];
@@ -460,6 +479,7 @@ const App: React.FC = () => {
         }
         
         setInputs(parseVultInputs(startCode));
+        setCcLabels(parseVultCCs(startCode));
         if (lastProjectName) setProjectName(lastProjectName);
         
         const projectsRaw = localStorage.getItem('vult_projects');
@@ -538,6 +558,7 @@ const App: React.FC = () => {
     setCode(value);
     localStorage.setItem('vult_session_code', value);
     
+    setCcLabels(parseVultCCs(value));
     const newInputs = parseVultInputs(value);
     setInputs(prev => {
       if (prev.length === newInputs.length && prev.every((v, i) => v.name === newInputs[i].name)) {
@@ -901,6 +922,7 @@ const App: React.FC = () => {
               onCC={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
               onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)}
               onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)}
+              ccLabels={ccLabels}
             />
           </div>
           

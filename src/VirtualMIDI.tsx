@@ -9,18 +9,10 @@ interface VirtualMIDIProps {
   onCC: (cc: number, value: number) => void;
   onNoteOn: (note: number, velocity: number) => void;
   onNoteOff: (note: number) => void;
+  ccLabels: Record<number, string>;
 }
 
-const KNOB_CCS = [30, 31, 32, 35, 74, 71, 76, 77, 40, 73, 75, 79, 72, 80, 81, 82, 45];
-
-const CC_LABELS: Record<number, string> = {
-  30: 'SAW/SQR', 31: 'SINE LVL', 32: 'PWM AMT', 35: 'LFO RATE',
-  74: 'LPF CUT', 71: 'LPF RES', 76: 'HPF CUT', 77: 'HPF RES', 40: 'F-EG AMT',
-  73: 'ENV A', 75: 'ENV D', 79: 'ENV S', 72: 'ENV R',
-  80: 'RM DPTH', 81: 'RM RATE', 82: 'RM ENV', 45: 'CHORUS'
-};
-
-const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) => {
+const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, ccLabels }) => {
   const [kbEnabled, setKbEnabled] = useState(false);
   const [octave, setOctave] = useState(3);
   const [velocity, setVelocity] = useState(100);
@@ -30,8 +22,15 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
   const [width, setWidth] = useState(800);
 
   useEffect(() => {
-    setCcValues(KNOB_CCS.reduce((acc, cc) => ({ ...acc, [cc]: 64 }), {}));
-  }, []);
+    setCcValues(prev => {
+      const next = { ...prev };
+      Object.keys(ccLabels).forEach(cc => {
+        const num = parseInt(cc);
+        if (next[num] === undefined) next[num] = 64;
+      });
+      return next;
+    });
+  }, [ccLabels]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -83,16 +82,19 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff }) 
       </div>
 
       <div className="knobs-row">
-        {KNOB_CCS.map(cc => (
-          <Knob 
-            key={cc} 
-            label={CC_LABELS[cc] || `CC ${cc}`} 
-            value={ccValues[cc] || 0} 
-            min={0} 
-            max={127} 
-            onChange={(val) => handleCCChange(cc, val)} 
-          />
-        ))}
+        {Object.keys(ccLabels).sort((a, b) => parseInt(a) - parseInt(b)).map(ccStr => {
+          const cc = parseInt(ccStr);
+          return (
+            <Knob 
+              key={cc} 
+              label={ccLabels[cc]} 
+              value={ccValues[cc] || 64} 
+              min={0} 
+              max={127} 
+              onChange={(val) => handleCCChange(cc, val)} 
+            />
+          );
+        })}
       </div>
 
       <div className="keyboard-container" ref={containerRef} style={{ height: '70px', background: '#111', padding: '5px 10px' }}>
