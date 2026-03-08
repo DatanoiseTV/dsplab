@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^1.44.0",
     "@monaco-editor/react": "^4.7.0",
     "ltrim": "^1.0.1",
     "lucide-react": "^0.577.0",
