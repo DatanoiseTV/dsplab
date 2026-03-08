@@ -4,13 +4,22 @@ import { Send, Loader2, Settings, Activity, StopCircle } from 'lucide-react';
 interface LLMPaneProps {
   currentCode: string;
   onUpdateCode: (code: string) => Promise<{success: boolean, error?: string}>;
+  onSetKnob: (cc: number, value: number) => void;
+  onTriggerGenerator: (index: number) => void;
+  onConfigureInput: (index: number, config: any) => void;
+  onLoadPreset: (name: string) => void;
+  getPresets: () => string[];
+  getTelemetry: () => Record<string, any>;
   systemPrompt: string;
 }
 
 type MessagePart = { text?: string; thought?: string; functionCall?: any; functionResponse?: any };
 type Message = { role: 'user' | 'model', parts: MessagePart[] };
 
-const LLMPane: React.FC<LLMPaneProps> = ({ currentCode, onUpdateCode, systemPrompt }) => {
+const LLMPane: React.FC<LLMPaneProps> = ({ 
+  currentCode, onUpdateCode, onSetKnob, onTriggerGenerator, 
+  onConfigureInput, onLoadPreset, getPresets, getTelemetry, systemPrompt 
+}) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -110,6 +119,60 @@ const LLMPane: React.FC<LLMPaneProps> = ({ currentCode, onUpdateCode, systemProm
             name: "get_current_code",
             description: "Retrieves the current Vult code from the editor.",
             parameters: { type: "OBJECT", properties: {} }
+          },
+          {
+            name: "set_knob",
+            description: "Sets a virtual CC knob value (30-41). Values range from 0 to 127.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                cc: { type: "NUMBER", description: "The CC number (30-41)." },
+                value: { type: "NUMBER", description: "The value (0-127)." }
+              },
+              required: ["cc", "value"]
+            }
+          },
+          {
+            name: "trigger_generator",
+            description: "Triggers a laboratory generator (Impulse, Step, Sweep) on a specific input strip.",
+            parameters: {
+              type: "OBJECT",
+              properties: { index: { type: "NUMBER", description: "The input strip index (0-based)." } },
+              required: ["index"]
+            }
+          },
+          {
+            name: "configure_lab_input",
+            description: "Configures a DSP Lab input strip type and parameters.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                index: { type: "NUMBER", description: "The input strip index." },
+                type: { type: "STRING", enum: ["oscillator", "cv", "impulse", "step", "sweep", "test_noise", "silence"], description: "The source type." },
+                freq: { type: "NUMBER", description: "Frequency if oscillator." },
+                oscType: { type: "STRING", enum: ["sine", "sawtooth", "square", "triangle"], description: "Oscillator shape." }
+              },
+              required: ["index", "type"]
+            }
+          },
+          {
+            name: "load_preset",
+            description: "Loads one of the built-in Vult presets.",
+            parameters: {
+              type: "OBJECT",
+              properties: { name: { type: "STRING", description: "The preset name." } },
+              required: ["name"]
+            }
+          },
+          {
+            name: "list_presets",
+            description: "Returns a list of available preset names.",
+            parameters: { type: "OBJECT", properties: {} }
+          },
+          {
+            name: "get_live_telemetry",
+            description: "Retrieves the current values of all internal Vult variables (live telemetry). Use this to verify code behavior.",
+            parameters: { type: "OBJECT", properties: {} }
           }
         ]
       }],
@@ -165,18 +228,11 @@ const LLMPane: React.FC<LLMPaneProps> = ({ currentCode, onUpdateCode, systemProm
               try {
                 const data = JSON.parse(line.substring(6));
                 const incomingParts = data.candidates?.[0]?.content?.parts || [];
-                
                 for (const part of incomingParts) {
-                  // Important: collect ALL parts into modelParts for history integrity
-                  // Handle thought signatures and other parts required by the API
                   modelParts.push(part);
-
                   if (part.text) {
                     setStatus("Typing...");
                     addDisplayMsg('assistant', part.text, true);
-                  }
-                  if (part.functionCall) {
-                    // Function calls don't need to be streamed to display
                   }
                 }
               } catch (e) {}
@@ -185,19 +241,14 @@ const LLMPane: React.FC<LLMPaneProps> = ({ currentCode, onUpdateCode, systemProm
         }
 
         finalizeStreamingMsg();
-
-        // Add the complete model response to history
         currentConversation.push({ role: 'model', parts: modelParts });
 
-        // Check for function calls in the turn we just finished
         const functionCalls = modelParts.filter(p => !!p.functionCall).map(p => p.functionCall);
 
         if (functionCalls.length > 0) {
           let functionResponses: MessagePart[] = [];
           for (const fc of functionCalls) {
-            // Clean function name (strip default_api: prefix if model adds it)
             const name = fc.name.includes(':') ? fc.name.split(':').pop() : fc.name;
-            
             setStatus(`Executing ${name}...`);
             addDisplayMsg('system', `🛠️ Tool: ${name}`);
             
@@ -210,24 +261,22 @@ const LLMPane: React.FC<LLMPaneProps> = ({ currentCode, onUpdateCode, systemProm
                 const regex = new RegExp(fc.args.pattern, 'i');
                 const matches = lines.map((l, i) => regex.test(l) ? `${i+1}: ${l}` : null).filter(Boolean);
                 result = { matches: matches.length > 0 ? matches : ["No matches found."] };
-              } catch(e: any) {
-                result = { error: `Invalid regex: ${e.message}` };
-              }
+              } catch(e: any) { result = { error: e.message }; }
             } else if (name === 'apply_diff') {
               const { old_string, new_string } = fc.args;
               if (codeRef.current.includes(old_string)) {
                 const newCode = codeRef.current.replace(old_string, new_string);
                 const res = await onUpdateCode(newCode);
                 if (res.success) {
-                  addDisplayMsg('system', `✅ Applied diff and compiled.`);
+                  addDisplayMsg('system', `✅ Applied diff.`);
                   result = { success: true };
                 } else {
-                  addDisplayMsg('system', `❌ Diff failed to compile:\n${res.error}`);
+                  addDisplayMsg('system', `❌ Diff failed:\n${res.error}`);
                   result = { success: false, error: res.error };
                 }
               } else {
-                addDisplayMsg('system', `❌ Error: 'old_string' not found in code.`);
-                result = { success: false, error: "Pattern not found. Ensure exact match including whitespace." };
+                addDisplayMsg('system', `❌ Error: 'old_string' not found.`);
+                result = { success: false, error: "Pattern not found." };
               }
             } else if (name === 'update_code') {
               const res = await onUpdateCode(fc.args.new_code);
@@ -235,21 +284,32 @@ const LLMPane: React.FC<LLMPaneProps> = ({ currentCode, onUpdateCode, systemProm
                 addDisplayMsg('system', `✅ Updated and compiled.`);
                 result = { success: true };
               } else {
-                addDisplayMsg('system', `❌ Compilation failed:\n${res.error}`);
+                addDisplayMsg('system', `❌ Failed:\n${res.error}`);
                 result = { success: false, error: res.error };
               }
+            } else if (name === 'set_knob') {
+              onSetKnob(fc.args.cc, fc.args.value);
+              result = { success: true };
+            } else if (name === 'trigger_generator') {
+              onTriggerGenerator(fc.args.index);
+              result = { success: true };
+            } else if (name === 'configure_lab_input') {
+              onConfigureInput(fc.args.index, fc.args);
+              result = { success: true };
+            } else if (name === 'load_preset') {
+              onLoadPreset(fc.args.name);
+              result = { success: true };
+            } else if (name === 'list_presets') {
+              result = { presets: getPresets() };
+            } else if (name === 'get_live_telemetry') {
+              result = { telemetry: getTelemetry() };
             }
 
-            functionResponses.push({ 
-              functionResponse: { 
-                name: fc.name, // Return exact name model used
-                response: result 
-              } 
-            });
+            functionResponses.push({ functionResponse: { name: fc.name, response: result } });
           }
           currentConversation.push({ role: 'user', parts: functionResponses });
         } else {
-          break; // Agent finished (no tool calls)
+          break; // Agent finished
         }
       }
     } catch (err: any) {
@@ -260,7 +320,6 @@ const LLMPane: React.FC<LLMPaneProps> = ({ currentCode, onUpdateCode, systemProm
       setIsLoading(false);
       setStatus(null);
     }
-
     setMessages(currentConversation);
   };
 

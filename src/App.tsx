@@ -123,7 +123,7 @@ fun cs80_vco_complex(cv: real, pwm_base: real, pwm_mod: real) : real {
 
 // CS-80 Oscillator - returns the Pure Sine output from the SAME phase memory
 // as cs80_vco_complex. Call this AFTER cs80_vco_complex each sample.
-// The \`mem phase\` here refers to the same instance's phase when called on
+// The mem phase here refers to the same instance's phase when called on
 // the same voice context. Both functions share state per-voice via Vult's
 // instance model when called inside cs80_voice.
 fun cs80_vco_sine(cv: real) : real {
@@ -407,7 +407,7 @@ const App: React.FC = () => {
   const skipNextUpdateRef = useRef(false);
 
   const parseVultInputs = useCallback((vultCode: string) => {
-    const match = vultCode.match(/fun\s+process\s*\(([^)]*)\)/);
+    const match = vultCode.match(/fun\\s+process\\s*\\(([^)]*)\\)/);
     if (!match) return [];
     const params = match[1].split(',').map(arg => {
       const parts = arg.trim().split(':');
@@ -486,8 +486,8 @@ const App: React.FC = () => {
   };
 
   const parseVultError = (errorStr: string) => {
-    const lineMatch = errorStr.match(/line (\d+)/i);
-    const colMatch = errorStr.match(/column (\d+)/i) || errorStr.match(/characters (\d+)/i);
+    const lineMatch = errorStr.match(/line (\\d+)/i);
+    const colMatch = errorStr.match(/column (\\d+)/i) || errorStr.match(/characters (\\d+)/i);
     
     if (lineMatch) {
       const line = parseInt(lineMatch[1]);
@@ -497,7 +497,7 @@ const App: React.FC = () => {
         endLineNumber: line,
         startColumn: col,
         endColumn: col + 1,
-        message: errorStr.replace(/Errors in the program:\s*/, '').trim(),
+        message: errorStr.replace(/Errors in the program:\\s*/, '').trim(),
         severity: 8
       };
     }
@@ -556,7 +556,6 @@ const App: React.FC = () => {
   };
 
   const handleSampleUpload = async (idx: number, file: File) => {
-    // We create a temporary context just for decoding, but it's safer to use the system rate
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
@@ -632,29 +631,12 @@ const App: React.FC = () => {
   const handleAgentUpdateCode = async (newCode: string) => {
     setCode(newCode);
     localStorage.setItem('vult_session_code', newCode);
-    
     const newInputs = parseVultInputs(newCode);
-    setInputs(prev => {
-      if (prev.length === newInputs.length && prev.every((v, i) => v.name === newInputs[i].name)) {
-        return prev;
-      }
-      return newInputs;
-    });
-
+    setInputs(newInputs);
     if (isPlaying) {
       const result = await audioEngineRef.current.updateCode(newCode);
-      if (!result.success) {
-        setStatus(`Compile Error`);
-        const marker = parseVultError(result.error);
-        if (marker) {
-          setEditorMarkers([marker]);
-        } else {
-          setEditorMarkers([]);
-        }
-      } else {
-        setStatus('Running');
-        setEditorMarkers([]);
-      }
+      if (result.success) { setStatus('Running'); setEditorMarkers([]); }
+      else { setStatus('Compile Error'); const m = parseVultError(result.error); if(m) setEditorMarkers([m]); }
       return result;
     }
     return { success: true };
@@ -676,7 +658,7 @@ const App: React.FC = () => {
       <div className="main-content">
         <div className="toolbar">
           <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} style={{ background: 'transparent', border: 'none', color: '#ffcc00', fontWeight: 'bold', width: '120px' }} />
-          <button className={`play-btn ${isPlaying ? 'playing' : ''}`} onClick={handleTogglePlay}>
+          <button className={`play-btn \${isPlaying ? 'playing' : ''}`} onClick={handleTogglePlay}>
             {isPlaying ? <Square size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
             {isPlaying ? 'STOP' : 'RUN'}
           </button>
@@ -843,6 +825,12 @@ const App: React.FC = () => {
                 <LLMPane 
                   currentCode={code}
                   onUpdateCode={handleAgentUpdateCode} 
+                  onSetKnob={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
+                  onTriggerGenerator={(idx) => audioEngineRef.current.triggerGenerator(idx)}
+                  onConfigureInput={(idx, config) => updateInput(idx, config)}
+                  onLoadPreset={(name) => loadPreset(name)}
+                  getPresets={() => Object.keys(PRESETS)}
+                  getTelemetry={() => audioEngineRef.current.getLiveState()}
                   systemPrompt={SYSTEM_PROMPT} 
                 />
               )}
