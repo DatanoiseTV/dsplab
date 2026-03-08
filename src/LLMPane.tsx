@@ -74,7 +74,29 @@ const LLMPane: React.FC<LLMPaneProps> = ({
     if (savedModel) setModelName(savedModel);
     const savedTokens = localStorage.getItem('llm_tokens');
     if (savedTokens) setTokens(JSON.parse(savedTokens));
+
+    const savedMsgs = localStorage.getItem('llm_messages');
+    if (savedMsgs) setMessages(JSON.parse(savedMsgs));
+
+    const savedDisplayMsgs = localStorage.getItem('llm_display_messages');
+    if (savedDisplayMsgs) setDisplayMessages(JSON.parse(savedDisplayMsgs));
   }, []);
+
+  // Persist messages whenever they change
+  useEffect(() => {
+    localStorage.setItem('llm_messages', JSON.stringify(messages));
+  }, [messages]);
+
+  useEffect(() => {
+    localStorage.setItem('llm_display_messages', JSON.stringify(displayMessages));
+  }, [displayMessages]);
+
+  const handleClearChat = () => {
+    setMessages([]);
+    setDisplayMessages([]);
+    localStorage.removeItem('llm_messages');
+    localStorage.removeItem('llm_display_messages');
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -944,6 +966,12 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             style={{ fontSize: '9px', background: '#444', color: '#fff', border: 'none', padding: '4px', borderRadius: '2px', cursor: 'pointer' }}
           >
             RESET TOKEN COUNTER
+          </button>
+          <button 
+            onClick={handleClearChat}
+            style={{ fontSize: '9px', background: '#441111', color: '#ff4444', border: '1px solid #ff4444', padding: '4px', borderRadius: '2px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            CLEAR CHAT HISTORY
           </button>
         </div>
       )}
