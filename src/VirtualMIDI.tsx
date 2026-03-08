@@ -33,15 +33,17 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const updateWidth = () => {
-      if (containerRef.current) {
-        const newWidth = containerRef.current.offsetWidth;
-        if (newWidth > 0) setWidth(newWidth);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const newWidth = entry.contentRect.width;
+        if (newWidth > 0) {
+          // Use functional update to avoid stale closures if needed, 
+          // though here we just want to ensure we don't loop if the width hasn't changed
+          setWidth(Math.floor(newWidth));
+        }
       }
-    };
-    const observer = new ResizeObserver(updateWidth);
+    });
     observer.observe(containerRef.current);
-    updateWidth();
     return () => observer.disconnect();
   }, []);
 

@@ -214,6 +214,8 @@
   gap: 8px;
   user-select: none;
   overflow: hidden;
+  min-width: 0;
+  width: 100%;
 }
 
 .midi-controls-row {
@@ -275,10 +277,10 @@
 /* KNOBS */
 .knobs-row {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   overflow-x: auto;
-  justify-content: center;
-  padding-bottom: 4px;
+  justify-content: flex-start;
+  padding: 4px 0;
 }
 
 .knob-unit {
