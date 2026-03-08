@@ -1278,28 +1278,21 @@ const LLMPane: React.FC<LLMPaneProps> = ({
     }
   }, [messages.length, isLoading, isInspirationLoading]);
 
-  const handleChoice = (val: string) => {
-    if (askUserResolverRef.current) {
-      addDisplayMsg('user', `Selected: ${val}`);
-      askUserResolverRef.current(val);
-    } else if (val.startsWith('load_preset:')) {
-      const name = val.split(':')[1];
-      onLoadPreset(name);
-      addDisplayMsg('user', `Action: Load Preset "${name}"`);
-      addDisplayMsg('system', `[ACTION] Loading laboratory preset: ${name}`);
-    }
-  };
-
   const handleFeelCurious = async () => {
     if (isLoading || isInspirationLoading) return;
+    addDisplayMsg('assistant', "I can either come up with a creative **Surprise** for you right now, or we can **Collaborate** on a specific musical vision. What would you prefer?", undefined, false, [
+      { label: "Surprise Me (Instant)", value: "inspiration:instant" },
+      { label: "Collaborate (Custom)", value: "inspiration:collaborate" }
+    ]);
+  };
+
+  const executeInspiration = async (userBrief: string = "") => {
     setIsInspirationLoading(true);
-    const msgId = addDisplayMsg('system', `[INSPIRATION] Consulting the DSP Architect for unique ideas...`, undefined, true);
+    const msgId = addDisplayMsg('system', `[INSPIRATION] Consulting the DSP Architect...`, undefined, true);
     
     const inspirationPrompt = `You are a visionary DSP Architect. Come up with ONE highly creative, unique, and technically functional synthesizer or audio effect idea that can be implemented in Vult. 
-    Focus on MUSICALITY and PLAYABILITY. Ensure the results are harmonically pleasing and useful for a composer. 
-    Focus on interesting modulation, well-tuned non-linearities, or physical modeling of real instruments. 
-    Provide only a concise 2-3 sentence engineering brief. 
-    Example: 'A lush resonant ladder filter where the feedback is non-linearly saturated using a tanh function, creating a warm analog-style growl that responds dynamically to velocity.'`;
+    Focus on MUSICALITY and PLAYABILITY. ${userBrief ? `USER WISHES: ${userBrief}` : "Surprise me with something unique."}
+    Provide only a concise 2-3 sentence engineering brief.`;
 
     try {
       let idea = "";
@@ -1314,7 +1307,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           body: JSON.stringify(payload)
         });
         const data = await response.json();
-        idea = data.candidates?.[0]?.content?.parts?.[0]?.text || "A unique multi-stage resonator.";
+        idea = data.candidates?.[0]?.content?.parts?.[0]?.text || "A unique resonant filter.";
       } else {
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -1326,22 +1319,45 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           })
         });
         const data = await response.json();
-        idea = data.choices?.[0]?.message?.content || "A unique grain-shuffler.";
+        idea = data.choices?.[0]?.message?.content || "A unique modulation effect.";
       }
 
       finalizeStreamingMsg(msgId);
       setIsInspirationLoading(false);
       addDisplayMsg('assistant', `💡 [IDEA] ${idea}`);
       
-      // Pass the idea to the main agent loop
       setIsLoading(true);
-      const newUserMsg: Message = { role: 'user', parts: [{ text: `I like that idea: "${idea}". Please implement it fully in Vult now.` }] };
+      const newUserMsg: Message = { role: 'user', parts: [{ text: `I like that idea: "${idea}". Please implement it fully in Vult now. Ensure all mandatory MIDI and boilerplate handlers are present.` }] };
       processAgentLoop([...messages, newUserMsg]);
 
     } catch (err: any) {
       finalizeStreamingMsg(msgId);
       addDisplayMsg('system', `[ERROR] Failed to get inspiration: ${err.message}`);
       setIsInspirationLoading(false);
+    }
+  };
+
+  const handleChoice = (val: string) => {
+    if (askUserResolverRef.current) {
+      addDisplayMsg('user', `Selected: ${val}`);
+      askUserResolverRef.current(val);
+    } else if (val.startsWith('load_preset:')) {
+      const name = val.split(':')[1];
+      onLoadPreset(name);
+      addDisplayMsg('user', `Action: Load Preset "${name}"`);
+      addDisplayMsg('system', `[ACTION] Loading laboratory preset: ${name}`);
+    } else if (val === 'inspiration:instant') {
+      addDisplayMsg('user', "Selected: Surprise Me");
+      executeInspiration();
+    } else if (val === 'inspiration:collaborate') {
+      addDisplayMsg('user', "Selected: Collaborate");
+      addDisplayMsg('assistant', "Excellent. Let's design something tailored. What's the core vibe—Analog, FM, Physical Modeling, or something else? And what kind of sound should we focus on (Lead, Bass, Ethereal, Percussive)?");
+      // Set up a custom resolver to wait for the user's brief
+      const resolver = async (input: string) => {
+        executeInspiration(input);
+      };
+      // We use the existing askUser mechanism but specifically for this flow
+      askUserResolverRef.current = (input: string) => resolver(input);
     }
   };
 
