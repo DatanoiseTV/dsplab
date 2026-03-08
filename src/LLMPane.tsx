@@ -277,22 +277,34 @@ const LLMPane: React.FC<LLMPaneProps> = ({
         }
       },
       {
+        name: "user_message",
+        description: "Displays a status message or update to the user.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            message: { type: "STRING", description: "The message to display." }
+          },
+          required: ["message"]
+        }
+      },
+      {
+        name: "write_plan",
+        description: "Documents your multi-step plan internally before execution. Use this to break down complex DSP tasks.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            plan: { type: "STRING", description: "The detailed step-by-step development plan." }
+          },
+          required: ["plan"]
+        }
+      },
+      {
         name: "tell",
         description: "Sends a status update, progress report, or informative message to the user while performing complex tasks.",
         parameters: {
           type: "OBJECT",
           properties: {
             message: { type: "STRING", description: "The message to display to the user." }
-          },
-          required: ["message"]
-        }
-      },
-      {
-        name: "user_message",        description: "Displays a status message or update to the user.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            message: { type: "STRING", description: "The message to display." }
           },
           required: ["message"]
         }
@@ -404,7 +416,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
     let currentConversation = [...initialMessages];
     stopFlagRef.current = false;
     let turnCount = 0;
-    const MAX_TURNS = 30;
+    const MAX_TURNS = 50;
     setCurrentTurn(0);
     
     try {
@@ -449,7 +461,8 @@ const LLMPane: React.FC<LLMPaneProps> = ({
                       if (!currentThoughtId) currentThoughtId = addDisplayMsg('thought', "", undefined, true);
                       addDisplayMsg('thought', part.thought, currentThoughtId, true);
                     }
-                  }                } catch (e) {}
+                  }
+                } catch (e) {}
               }
             }
           }
@@ -511,7 +524,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           let functionResponses: MessagePart[] = [];
           
           const toolLabels: Record<string, string> = {
-            'get_current_code': 'Reading source code',
+            'get_current_code': 'Reading source code context',
             'grep_search': 'Searching patterns',
             'apply_diff': 'Applying surgical fix',
             'edit_lines': 'Editing code block',
@@ -526,8 +539,9 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             'get_spectrum_data': 'Analyzing spectrum',
             'get_audio_metrics': 'Measuring audio quality',
             'user_message': 'Sending status update',
-            'tell': 'Communicating with user',
-            'ask_user': 'Requesting guidance'
+            'ask_user': 'Requesting guidance',
+            'write_plan': 'Documenting internal plan',
+            'tell': 'Communicating'
           };
 
           for (const fc of functionCalls) {
@@ -634,6 +648,9 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             } else if (name === 'user_message' || name === 'tell') {
               addDisplayMsg('assistant', fc.args.message);
               result = { success: true };
+            } else if (name === 'write_plan') {
+              addDisplayMsg('system', `📝 Documenting internal development plan`);
+              result = { success: true };
             } else if (name === 'ask_user') {
               const question = fc.args.question;
               setStatus("User input required.");
@@ -657,18 +674,18 @@ const LLMPane: React.FC<LLMPaneProps> = ({
       }
       
       if (turnCount >= MAX_TURNS) {
-        addDisplayMsg('system', "⚠️ Agent reached maximum turn limit (30). Interrupted for safety.");
+        addDisplayMsg('system', `⚠️ Agent reached maximum turn limit (${MAX_TURNS}). Interrupted for safety.`);
       } else if (!stopFlagRef.current) {
         addDisplayMsg('system', "🏁 Agent cycle complete.");
       }
-      } catch (err: any) {
+    } catch (err: any) {
       if (err.name === 'AbortError') {
         addDisplayMsg('system', "🛑 Operation stopped by user.");
       } else {
         addDisplayMsg('assistant', `⚠️ Loop Error: ${err.message}`);
         console.error("Agent Loop Error:", err);
       }
-      } finally {
+    } finally {
       setIsLoading(false);
       setStatus(null);
     }
@@ -713,7 +730,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px' }}>Vult Agent</span>
           </div>
           <div style={{ fontSize: '8px', color: '#555', marginTop: '2px', fontFamily: 'monospace' }}>
-            TOKENS: {tokens.total.toLocaleString()} (P:{tokens.prompt.toLocaleString()} C:{tokens.completion.toLocaleString()}) {currentTurn > 0 && `| TURN: ${currentTurn}/20`}
+            TOKENS: {tokens.total.toLocaleString()} (P:{tokens.prompt.toLocaleString()} C:{tokens.completion.toLocaleString()}) {currentTurn > 0 && `| TURN: ${currentTurn}/${provider === 'gemini' ? '50' : '30'}`}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
