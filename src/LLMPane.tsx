@@ -420,40 +420,20 @@ const LLMPane: React.FC<LLMPaneProps> = ({
                   
                   const parts = data.candidates?.[0]?.content?.parts || [];
                   for (const part of parts) {
-                    // Critical Fix for Gemini 2.0 thought_signature:
-                    // Only push parts that are NOT text/thought to modelParts here, 
-                    // because we'll add the combined text/thought at the end of the stream.
-                    // HOWEVER, we MUST preserve part metadata if any.
-                    if (part.functionCall) {
-                      modelParts.push(part);
-                    }
-                    
+                    // CRITICAL: Push every part exactly as received to preserve metadata (thought_signature)
+                    modelParts.push(part);
+
                     if (part.text) {
                       setStatus("Typing...");
                       if (!currentTextId) currentTextId = addDisplayMsg('assistant', "", undefined, true);
                       addDisplayMsg('assistant', part.text, currentTextId, true);
-                      
-                      let textPart = modelParts.find(p => p.text !== undefined);
-                      if (!textPart) {
-                        textPart = { text: "" };
-                        modelParts.push(textPart);
-                      }
-                      textPart.text += part.text;
                     }
                     if (part.thought) {
                       setStatus("Thinking deeply...");
                       if (!currentThoughtId) currentThoughtId = addDisplayMsg('thought', "", undefined, true);
                       addDisplayMsg('thought', part.thought, currentThoughtId, true);
-                      
-                      let thoughtPart = modelParts.find(p => p.thought !== undefined);
-                      if (!thoughtPart) {
-                        thoughtPart = { thought: "" };
-                        modelParts.push(thoughtPart);
-                      }
-                      thoughtPart.thought += part.thought;
                     }
-                  }
-                } catch (e) {}
+                  }                } catch (e) {}
               }
             }
           }
