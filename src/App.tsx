@@ -431,7 +431,7 @@ const App: React.FC = () => {
   const skipNextUpdateRef = useRef(false);
 
   const parseVultInputs = useCallback((vultCode: string) => {
-    const match = vultCode.match(/fun\\s+process\\s*\\(([^)]*)\\)/);
+    const match = vultCode.match(/fun\s+process\s*\(([^)]*)\)/);
     if (!match) return [];
     const params = match[1].split(',').map(arg => {
       const parts = arg.trim().split(':');
@@ -510,8 +510,8 @@ const App: React.FC = () => {
   };
 
   const parseVultError = (errorStr: string) => {
-    const lineMatch = errorStr.match(/line (\\d+)/i);
-    const colMatch = errorStr.match(/column (\\d+)/i) || errorStr.match(/characters (\\d+)/i);
+    const lineMatch = errorStr.match(/line (\d+)/i);
+    const colMatch = errorStr.match(/column (\d+)/i) || errorStr.match(/characters (\d+)/i);
     
     if (lineMatch) {
       const line = parseInt(lineMatch[1]);
