@@ -394,6 +394,11 @@ STRICT VULT LANGUAGE CONSTRAINTS:
 3. Use 'real' for all floating point operations and 'int' for indices/counters.
 4. Entry point MUST be 'fun process(input: real, ...) : real'. Additional parameters (knobs) are mapped automatically.
 
+CODE INTEGRITY MANDATE:
+- When using 'update_code', you MUST provide the ENTIRE source code of the program. NEVER provide partial snippets, single functions, or placeholders.
+- Always preserve or define 'process', 'noteOn', 'noteOff', and 'controlChange' functions to maintain structural compatibility with the laboratory.
+- If you only need to change a specific part, use 'apply_diff' or 'edit_lines'. Only use 'update_code' for fundamental architecture changes.
+
 LABORATORY WORKFLOW:
 - Read: Use 'get_current_code' for full context or 'list_functions' to quickly map out the architecture and parameter signatures.
 - Reference: Use 'get_vult_reference' if you are unsure about syntax, built-in functions, or operator precedence.

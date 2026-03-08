@@ -171,10 +171,10 @@ const LLMPane: React.FC<LLMPaneProps> = ({
     return [
       {
         name: "update_code",
-        description: "Replaces the entire Vult code in the editor with new code. ALWAYS provide the COMPLETE code file.",
+        description: "CRITICAL: Overwrites the ENTIRE source code. You MUST provide the complete program including process, noteOn, noteOff etc. NEVER use this for partial snippets; use apply_diff or edit_lines for those.",
         parameters: {
           type: "OBJECT",
-          properties: { new_code: { type: "STRING", description: "The complete, updated Vult code." } },
+          properties: { new_code: { type: "STRING", description: "The COMPLETE new source code for the project." } },
           required: ["new_code"]
         }
       },
