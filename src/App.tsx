@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Square, Cpu, Zap, Activity, Save, Download, Sliders, AudioWaveform, Code2, Database, History } from 'lucide-react';
+import { Play, Square, Cpu, Zap, Activity, Save, Download, Sliders, AudioWaveform, Code2, Database, History, Maximize2, Minimize2, Music, Keyboard } from 'lucide-react';
 import { AudioEngine } from './AudioEngine';
 import type { InputSource, SourceType } from './AudioEngine';
 import { MIDIController } from './MIDIController';
@@ -385,7 +385,7 @@ and default() {
 };
 
 const SYSTEM_PROMPT = `
-Role: Senior Audio DSP Engineer & Vult Language Expert.
+Role: Senior DSP Research Scientist and Mentor. 
 Environment: Professional Real-time IDE with Live Telemetry, 12 CC Knobs (30-41), and 6-voice polyphony.
 
 STRICT VULT LANGUAGE CONSTRAINTS:
@@ -440,11 +440,21 @@ const App: React.FC = () => {
   const [seqSteps, setSeqSteps] = useState<Step[]>(Array.from({ length: 16 }, () => ({ active: false, note: 60, accent: false, slide: false })));
   const [seqBpm, setSeqBpm] = useState(120);
   const [seqPlaying, setSeqPlaying] = useState(false);
+  const [seqLength, setSeqLength] = useState(16);
   
   const [inputs, setInputs] = useState<InputSource[]>([]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [midiInputs, setMidiInputs] = useState<any[]>([]);
   const [selectedMidiInput, setSelectedMidiInput] = useState<string>('all');
+
+  // UI States
+  const [labHeight, setLabHeight] = useState(140);
+  const [seqHeight, setSeqHeight] = useState(130);
+  const [midiHeight, setMidiHeight] = useState(180);
+  
+  const [isLabCollapsed, setIsLabCollapsed] = useState(false);
+  const [isSeqCollapsed, setIsSeqCollapsed] = useState(false);
+  const [isMidiCollapsed, setIsMidiCollapsed] = useState(false);
   
   const audioEngineRef = useRef<AudioEngine>(new AudioEngine());
   const midiControllerRef = useRef<MIDIController | null>(null);
@@ -452,23 +462,17 @@ const App: React.FC = () => {
 
   const parseVultCCs = useCallback((vultCode: string) => {
     const ccMap: Record<number, string> = {};
-    // Extract CC mapping from if/else logic
-    // Pattern: if (c == 30) { param = val; } // Label
     const regex = /(?:if|else\s+if)\s*\(\s*(?:c|control)\s*==\s*(\d+)\s*\)\s*\{?\s*([a-zA-Z_]\w*)\s*=[^;]+;?\s*\}?\s*(?:\/\/+(.*))?/g;
-    
     let match;
     regex.lastIndex = 0;
     while ((match = regex.exec(vultCode)) !== null) {
       const cc = parseInt(match[1]);
       const varName = match[2];
       const comment = match[3]?.trim();
-      
       if (varName && !['if', 'else', 'val', 'mem', 'real', 'int', 'bool', 'return'].includes(varName)) {
         ccMap[cc] = comment || varName.toUpperCase();
       }
     }
-    
-    // Return standard fallback if no CCs found to prevent UI from being empty
     if (Object.keys(ccMap).length === 0) {
       return { 30: 'SAW/SQR', 31: 'SINE LVL', 32: 'PWM AMT', 35: 'LFO RATE' };
     }
@@ -479,7 +483,6 @@ const App: React.FC = () => {
 
   const saveSnapshot = useCallback((msg: string = "Manual Snapshot") => {
     setCodeHistory(prev => {
-      // Don't save if identical to last snapshot
       if (prev[0] && prev[0].code === code && msg === "Autosave") return prev;
       const next = [{ timestamp: Date.now(), code, msg }, ...prev].slice(0, 100);
       localStorage.setItem('vult_code_history', JSON.stringify(next));
@@ -510,14 +513,10 @@ const App: React.FC = () => {
         const lastSession = localStorage.getItem('vult_session_code');
         const lastProjectName = localStorage.getItem('vult_session_name');
         const historyRaw = localStorage.getItem('vult_code_history');
-        
         if (historyRaw) setCodeHistory(JSON.parse(historyRaw));
         
         let startCode = code;
-        if (lastSession) {
-          startCode = lastSession;
-          setCode(lastSession);
-        }
+        if (lastSession) { startCode = lastSession; setCode(lastSession); }
         
         setInputs(parseVultInputs(startCode));
         setCcLabels(parseVultCCs(startCode));
@@ -537,28 +536,18 @@ const App: React.FC = () => {
       await midiControllerRef.current.init();
       setMidiInputs(midiControllerRef.current?.getInputs() || []);
       ae.getDevices().then(setAudioDevices);
-
-      ae.onRuntimeError((err) => {
-        setStatus('Runtime Crash');
-        console.error("DSP Runtime Crash:", err);
-      });
+      ae.onRuntimeError(() => setStatus('Runtime Crash'));
     };
-
     startup();
     return () => { audioEngineRef.current.stop(); };
   }, []);
 
-  // Autosave Logic
   useEffect(() => {
-    const timer = setInterval(() => {
-      saveSnapshot("Autosave");
-    }, 300000); // Autosave every 5 minutes
+    const timer = setInterval(() => { saveSnapshot("Autosave"); }, 300000);
     return () => clearInterval(timer);
   }, [saveSnapshot]);
 
-  useEffect(() => {
-    audioEngineRef.current.setSources(inputs);
-  }, [inputs]);
+  useEffect(() => { audioEngineRef.current.setSources(inputs); }, [inputs]);
 
   const handleTogglePlay = async () => {
     const ae = audioEngineRef.current;
@@ -566,19 +555,8 @@ const App: React.FC = () => {
     else {
       await ae.start();
       const result = await ae.updateCode(code);
-      if (result.success) {
-        setStatus('Running');
-        ae.setProbes(activeProbes);
-        setEditorMarkers([]);
-      }
-      else {
-        setStatus('Compile Error');
-        console.error("Vult Compile Error:", result.error);
-        const marker = parseVultError(result.error);
-        if (marker) {
-          setEditorMarkers([marker]);
-        }
-      }
+      if (result.success) { setStatus('Running'); ae.setProbes(activeProbes); setEditorMarkers([]); }
+      else { setStatus('Compile Error'); const marker = parseVultError(result.error); if (marker) setEditorMarkers([marker]); }
       setIsPlaying(true);
     }
   };
@@ -586,64 +564,31 @@ const App: React.FC = () => {
   const parseVultError = (errorStr: string) => {
     const lineMatch = errorStr.match(/line (\d+)/i);
     const colMatch = errorStr.match(/column (\d+)/i) || errorStr.match(/characters (\d+)/i);
-    
     if (lineMatch) {
       const line = parseInt(lineMatch[1]);
       const col = colMatch ? parseInt(colMatch[1]) : 1;
-      return {
-        startLineNumber: line,
-        endLineNumber: line,
-        startColumn: col,
-        endColumn: col + 1,
-        message: errorStr.replace(/Errors in the program:\\s*/, '').trim(),
-        severity: 8
-      };
+      return { startLineNumber: line, endLineNumber: line, startColumn: col, endColumn: col + 1, message: errorStr.replace(/Errors in the program:\s*/, '').trim(), severity: 8 };
     }
     return null;
   };
 
   const handleCodeChange = async (value: string | undefined) => {
     if (value === undefined) return;
-    if (skipNextUpdateRef.current) {
-      skipNextUpdateRef.current = false;
-      return;
-    }
-
+    if (skipNextUpdateRef.current) { skipNextUpdateRef.current = false; return; }
     setCode(value);
     localStorage.setItem('vult_session_code', value);
-    
     setCcLabels(parseVultCCs(value));
     const newInputs = parseVultInputs(value);
-    setInputs(prev => {
-      if (prev.length === newInputs.length && prev.every((v, i) => v.name === newInputs[i].name)) {
-        return prev;
-      }
-      return newInputs;
-    });
-
+    setInputs(prev => (prev.length === newInputs.length && prev.every((v, i) => v.name === newInputs[i].name)) ? prev : newInputs);
     if (isPlaying) {
       const result = await audioEngineRef.current.updateCode(value);
-      if (!result.success) {
-        setStatus(`Compile Error`);
-        const marker = parseVultError(result.error);
-        if (marker) {
-          setEditorMarkers([marker]);
-        } else {
-          setEditorMarkers([]);
-        }
-      } else {
-        setStatus('Running');
-        setEditorMarkers([]);
-      }
+      if (!result.success) { setStatus('Compile Error'); const marker = parseVultError(result.error); if (marker) setEditorMarkers([marker]); }
+      else { setStatus('Running'); setEditorMarkers([]); }
     }
   };
 
   const updateInput = (idx: number, patch: Partial<InputSource>) => {
-    setInputs(prev => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], ...patch };
-      return next;
-    });
+    setInputs(prev => { const next = [...prev]; next[idx] = { ...next[idx], ...patch }; return next; });
   };
 
   const toggleProbe = (name: string) => {
@@ -658,24 +603,11 @@ const App: React.FC = () => {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-    const floatData = audioBuffer.getChannelData(0); // Mono for now
+    const floatData = audioBuffer.getChannelData(0);
     audioEngineRef.current.setSampleData(idx, floatData);
     updateInput(idx, { name: file.name.split('.')[0] });
-    ctx.close(); // Clean up
+    ctx.close();
   };
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setInputs(prev => prev.map(input => {
-        if (input.type === 'cv' && input.isCycling) {
-          const newValue = (Math.sin(Date.now() * 0.002) + 1) / 2;
-          return { ...input, value: newValue };
-        }
-        return input;
-      }));
-    }, 50);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleSave = () => {
     const projects = JSON.parse(localStorage.getItem('vult_projects') || '{}');
@@ -698,11 +630,7 @@ const App: React.FC = () => {
   const handleExportCPP = async () => {
     setStatus('Generating C++...');
     try {
-      const response = await fetch('/api/compile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, target: 'cpp' })
-      });
+      const response = await fetch('/api/compile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, target: 'cpp' }) });
       const data = await response.json();
       if (data.code) {
         const blob = new Blob([data.code], { type: 'text/plain' });
@@ -712,75 +640,52 @@ const App: React.FC = () => {
         a.download = `${projectName.replace(/\s+/g, '_')}.cpp`;
         a.click();
         setStatus('C++ Exported');
-      } else {
-        setStatus('Export Failed');
-      }
-    } catch (e) {
-      setStatus('Network Error');
-    }
+      } else { setStatus('Export Failed'); }
+    } catch (e) { setStatus('Network Error'); }
   };
 
   const loadPreset = (name: string) => {
     const presetCode = PRESETS[name];
-    if (presetCode) {
-      skipNextUpdateRef.current = false;
-      handleCodeChange(presetCode);
-    }
+    if (presetCode) { skipNextUpdateRef.current = false; handleCodeChange(presetCode); }
   };
 
   const handleAgentUpdateCode = async (newCode: string) => {
-    // Capture the original stable code before the agent's first attempt
-    if (!diffMode) {
-      setOriginalCode(code);
-    }
-
-    // Update code immediately so agent sees its work and markers align
+    if (!diffMode) setOriginalCode(code);
     setCode(newCode);
-    
-    // Trial compilation to give agent feedback
     const result = await audioEngineRef.current.updateCode(newCode);
-    
-    if (result.success) {
-      saveSnapshot("Agent Update");
-      setDiffMode(true); // Only show side-by-side diff after success
-      setEditorMarkers([]);
-      setStatus('Trial Compile OK');
-      return { success: true, message: "Code compiled successfully. Waiting for user to ACCEPT changes." };
-    } else {
-      setDiffMode(false); // Stay in/revert to standard editor on failure
-      const marker = parseVultError(result.error);
-      if (marker) setEditorMarkers([marker]);
-      setStatus('Compile Error');
-      return { success: false, error: result.error };
-    }
+    if (result.success) { saveSnapshot("Agent Update"); setDiffMode(true); setEditorMarkers([]); setStatus('Trial Compile OK'); return { success: true, message: "Code compiled successfully. Waiting for user to ACCEPT changes." }; }
+    else { setDiffMode(false); const marker = parseVultError(result.error); if (marker) setEditorMarkers([marker]); setStatus('Compile Error'); return { success: false, error: result.error }; }
   };
 
   const handleAcceptDiff = async () => {
     const newCode = code;
     localStorage.setItem('vult_session_code', newCode);
-    
-    const newInputs = parseVultInputs(newCode);
-    setInputs(newInputs);
-
+    setInputs(parseVultInputs(newCode));
     if (isPlaying) {
       const result = await audioEngineRef.current.updateCode(newCode);
-      if (result.success) {
-        setStatus('Running');
-        setEditorMarkers([]);
-      } else {
-        setStatus('Compile Error');
-        const marker = parseVultError(result.error);
-        if (marker) setEditorMarkers([marker]);
-      }
+      if (result.success) { setStatus('Running'); setEditorMarkers([]); }
+      else { setStatus('Compile Error'); const marker = parseVultError(result.error); if (marker) setEditorMarkers([marker]); }
     }
     setDiffMode(false);
     setOriginalCode('');
   };
 
-  const handleRejectDiff = () => {
-    setCode(originalCode);
-    setDiffMode(false);
-    setOriginalCode('');
+  const handleRejectDiff = () => { setCode(originalCode); setDiffMode(false); setOriginalCode(''); };
+
+  // Resizing logic
+  const startResizing = (setter: React.Dispatch<React.SetStateAction<number>>, min: number, max: number) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const handleMove = (moveEvent: MouseEvent) => {
+      const delta = startY - moveEvent.clientY;
+      setter(prev => Math.max(min, Math.min(max, prev + delta)));
+    };
+    const handleUp = () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
   };
 
   return (
@@ -800,253 +705,130 @@ const App: React.FC = () => {
       <div className="main-content">
         <div className="toolbar">
           <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} style={{ background: 'transparent', border: 'none', color: '#ffcc00', fontWeight: 'bold', width: '120px' }} />
-          <button className={`play-btn \${isPlaying ? 'playing' : ''}`} onClick={handleTogglePlay}>
+          <button className={`play-btn ${isPlaying ? 'playing' : ''}`} onClick={handleTogglePlay}>
             {isPlaying ? <Square size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
             {isPlaying ? 'STOP' : 'RUN'}
           </button>
-          
           <div className="divider" />
-          
-          <div className="control-group">
-            <span className="label">PRESET</span>
-            <select value="" onChange={(e) => loadPreset(e.target.value)}>
-              <option value="" disabled>Load...</option>
-              {Object.keys(PRESETS).map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-
-          <div className="control-group">
-            <span className="label">MIDI</span>
-            <select value={selectedMidiInput} onChange={(e) => {
-              setSelectedMidiInput(e.target.value);
-              midiControllerRef.current?.setInput(e.target.value === 'all' ? null : e.target.value);
-            }}>
-              <option value="all">All</option>
-              {midiInputs.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-            </select>
-          </div>
-
-          <div className="control-group">
-            <span className="label">SAVED</span>
-            <select value="" onChange={(e) => handleCodeChange(JSON.parse(localStorage.getItem('vult_projects') || '{}')[e.target.value])}>
-              <option value="" disabled>Open...</option>
-              {savedProjects.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-
+          <div className="control-group"><span className="label">PRESET</span><select value="" onChange={(e) => loadPreset(e.target.value)}><option value="" disabled>Load...</option>{Object.keys(PRESETS).map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+          <div className="control-group"><span className="label">MIDI</span><select value={selectedMidiInput} onChange={(e) => { setSelectedMidiInput(e.target.value); midiControllerRef.current?.setInput(e.target.value === 'all' ? null : e.target.value); }}><option value="all">All</option>{midiInputs.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></div>
+          <div className="control-group"><span className="label">SAVED</span><select value="" onChange={(e) => handleCodeChange(JSON.parse(localStorage.getItem('vult_projects') || '{}')[e.target.value])}><option value="" disabled>Open...</option>{savedProjects.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
           <div className="spacer" />
-          <div className={`status-badge ${ (status === 'Compile Error' || status === 'Runtime Crash') ? 'error' : ''}`}><Activity size={14} />{status}</div>
+          <div className={`status-badge ${(status === 'Compile Error' || status === 'Runtime Crash') ? 'error' : ''}`}><Activity size={14} />{status}</div>
         </div>
 
         <div className="editor-layout">
           <div className="editor-container">
             <div className="editor-wrapper" style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-              <VultEditor 
-                code={code} 
-                onChange={handleCodeChange} 
-                markers={editorMarkers} 
-                onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)}
-                diffMode={diffMode}
-                originalCode={originalCode}
-              />
+              <VultEditor code={code} onChange={handleCodeChange} markers={editorMarkers} onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} diffMode={diffMode} originalCode={originalCode} />
               {diffMode && (
-                <div style={{ 
-                  position: 'absolute', 
-                  bottom: '20px', 
-                  right: '20px', 
-                  display: 'flex', 
-                  gap: '10px', 
-                  zIndex: 100 
-                }}>
-                  <button 
-                    onClick={handleRejectDiff}
-                    style={{ background: '#444', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                  >
-                    REJECT
-                  </button>
-                  <button 
-                    onClick={handleAcceptDiff}
-                    style={{ background: '#007acc', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                  >
-                    ACCEPT & COMPILE
-                  </button>
+                <div style={{ position: 'absolute', bottom: '20px', right: '20px', display: 'flex', gap: '10px', zIndex: 100 }}>
+                  <button onClick={handleRejectDiff} style={{ background: '#444', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>REJECT</button>
+                  <button onClick={handleAcceptDiff} style={{ background: '#007acc', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>ACCEPT & COMPILE</button>
                 </div>
               )}
             </div>
             
-            <div className="dsp-lab">
-              <div className="section-title"><Sliders size={12} /> DSP LAB / INPUT ROUTING</div>
-              <div className="input-strips">
-                {inputs.map((input, i) => (
-                  <div key={i} className="input-strip">
-                    <div className="strip-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      {input.name}
-                      {(input.type === 'impulse' || input.type === 'step') && (
-                        <Zap size={10} style={{ cursor: 'pointer', color: '#ffcc00' }} onClick={() => audioEngineRef.current.triggerGenerator(i)} />
+            {/* COLLAPSIBLE / RESIZABLE PANELS */}
+            
+            {/* DSP LAB */}
+            <div className="resize-handle" onMouseDown={startResizing(setLabHeight, 30, 400)} />
+            <div className={`dsp-lab ${isLabCollapsed ? 'collapsed' : ''}`} style={{ height: isLabCollapsed ? '30px' : `${labHeight}px`, flex: 'none' }}>
+              <div className="section-header" onClick={() => setIsLabCollapsed(!isLabCollapsed)}>
+                <div className="section-title"><Sliders size={12} /> DSP LAB / INPUT ROUTING</div>
+                {isLabCollapsed ? <Maximize2 size={10} /> : <Minimize2 size={10} />}
+              </div>
+              {!isLabCollapsed && (
+                <div className="input-strips">
+                  {inputs.map((input, i) => (
+                    <div key={i} className="input-strip">
+                      <div className="strip-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        {input.name}
+                        {(input.type === 'impulse' || input.type === 'step') && (
+                          <Zap size={10} style={{ cursor: 'pointer', color: '#ffcc00' }} onClick={() => audioEngineRef.current.triggerGenerator(i)} />
+                        )}
+                      </div>
+                      <select value={input.type} onChange={(e) => updateInput(i, { type: e.target.value as SourceType })}>
+                        <option value="oscillator">Oscillator</option><option value="sample">Sample File</option><option value="live">Live Audio</option><option value="cv">CV Slider</option><option value="impulse">Impulse</option><option value="step">Step</option><option value="sweep">Sweep</option><option value="test_noise">Test Noise</option><option value="silence">Silence</option>
+                      </select>
+                      {input.type === 'oscillator' && (
+                        <div className="strip-controls" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                          <select value={input.oscType} onChange={(e) => updateInput(i, { oscType: e.target.value as any })} style={{ marginBottom: '4px', width: '100%' }}><option value="sine">Sine</option><option value="sawtooth">Saw</option><option value="square">Square</option><option value="triangle">Tri</option></select>
+                          <Knob label="FREQ" value={input.freq} min={20} max={20000} onChange={(val) => updateInput(i, { freq: val })} size={36} />
+                        </div>
+                      )}
+                      {input.type === 'sample' && (
+                        <div className="strip-controls" style={{ alignItems: 'center', justifyContent: 'center' }}>
+                          <input type="file" accept="audio/*" onChange={(e) => e.target.files && handleSampleUpload(i, e.target.files[0])} style={{ display: 'none' }} id={`sample-${i}`} />
+                          <label htmlFor={`sample-${i}`} style={{ cursor: 'pointer', fontSize: '8px', color: '#ffcc00', border: '1px solid #444', padding: '2px 4px' }}>LOAD</label>
+                          <Play size={10} style={{ cursor: 'pointer', color: '#00ff00', margin: '0 4px' }} onClick={() => audioEngineRef.current.triggerGenerator(i)} />
+                          <Activity size={12} style={{ cursor: "pointer", color: input.isLooping ? "#00ff00" : "#444" }} onClick={() => updateInput(i, { isLooping: !input.isLooping })} />
+                        </div>
+                      )}
+                      {input.type === 'cv' && (
+                        <div className="strip-controls" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                          <Knob label="VALUE" value={input.value} min={0} max={1} isFloat={true} onChange={(val) => updateInput(i, { value: val })} size={36} />
+                          <div style={{ marginTop: '4px' }}><Activity size={12} style={{ cursor: "pointer", color: input.isCycling ? "#00ff00" : "#444" }} onClick={() => updateInput(i, { isCycling: !input.isCycling })} /></div>
+                        </div>
+                      )}
+                      {input.type === 'sweep' && (
+                        <div className="strip-controls" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                          <Knob label="TIME(s)" value={input.value} min={0.1} max={10.0} isFloat={true} onChange={(val) => updateInput(i, { value: val })} size={36} />
+                          <Play size={10} style={{ cursor: 'pointer', color: '#ffcc00', marginTop: '4px' }} onClick={() => audioEngineRef.current.triggerGenerator(i)} />
+                        </div>
+                      )}
+                      {input.type === 'live' && (
+                        <select value={input.deviceId} onChange={(e) => updateInput(i, { deviceId: e.target.value })}>{audioDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Input'}</option>)}</select>
                       )}
                     </div>
-                    <select value={input.type} onChange={(e) => updateInput(i, { type: e.target.value as SourceType })}>
-                      <option value="oscillator">Oscillator</option>
-                      <option value="sample">Sample File</option>
-                      <option value="live">Live Audio</option>
-                      <option value="cv">CV Slider</option>
-                      <option value="impulse">Impulse</option>
-                      <option value="step">Step</option>
-                      <option value="sweep">Sweep</option>
-                      <option value="test_noise">Test Noise</option>
-                      <option value="silence">Silence</option>
-                    </select>
-                    
-                    {input.type === 'oscillator' && (
-                      <div className="strip-controls" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-                        <select value={input.oscType} onChange={(e) => updateInput(i, { oscType: e.target.value as any })} style={{ marginBottom: '4px', width: '100%' }}>
-                          <option value="sine">Sine</option>
-                          <option value="sawtooth">Saw</option>
-                          <option value="square">Square</option>
-                          <option value="triangle">Tri</option>
-                        </select>
-                        <Knob 
-                          label="FREQ" 
-                          value={input.freq} 
-                          min={20} 
-                          max={20000} 
-                          onChange={(val) => updateInput(i, { freq: val })} 
-                          size={36} 
-                        />
-                      </div>
-                    )}
-
-                    {input.type === 'sample' && (
-                      <div className="strip-controls" style={{ alignItems: 'center', justifyContent: 'center' }}>
-                        <input type="file" accept="audio/*" onChange={(e) => e.target.files && handleSampleUpload(i, e.target.files[0])} style={{ display: 'none' }} id={`sample-${i}`} />
-                        <label htmlFor={`sample-${i}`} style={{ cursor: 'pointer', fontSize: '8px', color: '#ffcc00', border: '1px solid #444', padding: '2px 4px' }}>LOAD</label>
-                        <Play size={10} style={{ cursor: 'pointer', color: '#00ff00', margin: '0 4px' }} onClick={() => audioEngineRef.current.triggerGenerator(i)} />
-                        <Activity 
-                          size={12} 
-                          style={{ cursor: "pointer", color: input.isLooping ? "#00ff00" : "#444" }} 
-                          onClick={() => updateInput(i, { isLooping: !input.isLooping })}
-                        />
-                      </div>
-                    )}
-                    
-                    {input.type === 'cv' && (
-                      <div className="strip-controls" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-                        <Knob 
-                          label="VALUE" 
-                          value={input.value} 
-                          min={0} 
-                          max={1} 
-                          isFloat={true}
-                          onChange={(val) => updateInput(i, { value: val })} 
-                          size={36} 
-                        />
-                        <div style={{ marginTop: '4px' }}>
-                          <Activity 
-                            size={12} 
-                            style={{ cursor: "pointer", color: input.isCycling ? "#00ff00" : "#444" }} 
-                            onClick={() => updateInput(i, { isCycling: !input.isCycling })}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    
-                    {input.type === 'sweep' && (
-                      <div className="strip-controls" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-                        <Knob 
-                          label="TIME(s)" 
-                          value={input.value} 
-                          min={0.1} 
-                          max={10.0} 
-                          isFloat={true}
-                          onChange={(val) => updateInput(i, { value: val })} 
-                          size={36} 
-                        />
-                        <Play size={10} style={{ cursor: 'pointer', color: '#ffcc00', marginTop: '4px' }} onClick={() => audioEngineRef.current.triggerGenerator(i)} />
-                      </div>
-                    )}
-
-                    {input.type === 'live' && (
-                      <select value={input.deviceId} onChange={(e) => updateInput(i, { deviceId: e.target.value })}>
-                        {audioDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Input'}</option>)}
-                      </select>
-                    )}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <Sequencer 
-              steps={seqSteps}
-              setSteps={setSeqSteps}
-              bpm={seqBpm}
-              setBpm={setSeqBpm}
-              isPlaying={seqPlaying}
-              setIsPlaying={setSeqPlaying}
-              onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)}
-              onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)}
-            />
+            {/* SEQUENCER */}
+            <div className="resize-handle" onMouseDown={startResizing(setSeqHeight, 30, 400)} />
+            <div className={`sequencer-panel ${isSeqCollapsed ? 'collapsed' : ''}`} style={{ height: isSeqCollapsed ? '30px' : `${seqHeight}px`, flex: 'none', background: '#111', borderTop: '1px solid #333' }}>
+              <div className="section-header" onClick={() => setIsSeqCollapsed(!isSeqCollapsed)} style={{ padding: '8px 12px', borderBottom: isSeqCollapsed ? 'none' : '1px solid #222' }}>
+                <div className="section-title" style={{ margin: 0 }}><Music size={12} /> TB-STYLE SEQUENCER</div>
+                {isSeqCollapsed ? <Maximize2 size={10} /> : <Minimize2 size={10} />}
+              </div>
+              {!isSeqCollapsed && (
+                <Sequencer steps={seqSteps} setSteps={setSeqSteps} bpm={seqBpm} setBpm={setSeqBpm} isPlaying={seqPlaying} setIsPlaying={setSeqPlaying} onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)} onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)} length={seqLength} setLength={setSeqLength} />
+              )}
+            </div>
 
-            <VirtualMIDI 
-              onCC={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
-              onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)}
-              onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)}
-              ccLabels={ccLabels}
-            />
+            {/* MIDI CONTROLS */}
+            <div className="resize-handle" onMouseDown={startResizing(setMidiHeight, 30, 400)} />
+            <div className={`virtual-midi-panel ${isMidiCollapsed ? 'collapsed' : ''}`} style={{ height: isMidiCollapsed ? '30px' : `${midiHeight}px`, flex: 'none' }}>
+              <div className="section-header" onClick={() => setIsMidiCollapsed(!isMidiCollapsed)}>
+                <div className="section-title"><Keyboard size={12} /> MIDI CONTROLS</div>
+                {isMidiCollapsed ? <Maximize2 size={10} /> : <Minimize2 size={10} />}
+              </div>
+              {!isMidiCollapsed && (
+                <VirtualMIDI onCC={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)} onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)} onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)} ccLabels={ccLabels} />
+              )}
+            </div>
           </div>
           
           <div className="side-panel">
             <div className="scope-section">
               <div className="section-title"><AudioWaveform size={12} /> DUAL-TRACE ANALYZER</div>
-              <ScopeView 
-                getScopeData={() => audioEngineRef.current.getScopeData()} 
-                getSpectrumData={() => audioEngineRef.current.getSpectrumData()} 
-                getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null}
-                probes={activeProbes}
-              />
+              <ScopeView getScopeData={() => audioEngineRef.current.getScopeData()} getSpectrumData={() => audioEngineRef.current.getSpectrumData()} getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null} probes={activeProbes} />
             </div>
             <div className="llm-section">
               {showHistory ? (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#1e1e1e', borderLeft: '1px solid #333' }}>
                   <div style={{ padding: '12px', borderBottom: '1px solid #333', fontWeight: 'bold', fontSize: '14px', color: '#aaa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <History size={16} /> VERSION HISTORY
-                    </div>
-                    <button 
-                      onClick={() => saveSnapshot("Manual Snapshot")}
-                      style={{ background: '#333', border: '1px solid #444', color: '#ffcc00', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' }}
-                    >
-                      SNAPSHOT
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><History size={16} /> VERSION HISTORY</div>
+                    <button onClick={() => saveSnapshot("Manual Snapshot")} style={{ background: '#333', border: '1px solid #444', color: '#ffcc00', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' }}>SNAPSHOT</button>
                   </div>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-                    {codeHistory.length === 0 && (
-                      <div style={{ padding: '20px', color: '#666', textAlign: 'center', fontSize: '12px' }}>No snapshots yet.</div>
-                    )}
+                    {codeHistory.length === 0 && <div style={{ padding: '20px', color: '#666', textAlign: 'center', fontSize: '12px' }}>No snapshots yet.</div>}
                     {codeHistory.map((entry, idx) => (
-                      <div 
-                        key={idx} 
-                        style={{ 
-                          padding: '10px', 
-                          borderBottom: '1px solid #333', 
-                          cursor: 'pointer',
-                          background: code === entry.code ? '#2d2d2d' : 'transparent',
-                          borderRadius: '4px',
-                          marginBottom: '4px',
-                          transition: 'all 0.2s'
-                        }}
-                        onClick={() => {
-                          setOriginalCode(code);
-                          setCode(entry.code);
-                          setDiffMode(true);
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '11px', color: '#ffcc00', fontWeight: 'bold' }}>{entry.msg}</span>
-                          <span style={{ fontSize: '9px', color: '#666' }}>{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                        </div>
-                        <div style={{ fontSize: '10px', color: '#888', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {entry.code.substring(0, 100).replace(/\n/g, ' ')}...
-                        </div>
+                      <div key={idx} style={{ padding: '10px', borderBottom: '1px solid #333', cursor: 'pointer', background: code === entry.code ? '#2d2d2d' : 'transparent', borderRadius: '4px', marginBottom: '4px', transition: 'all 0.2s' }} onClick={() => { setOriginalCode(code); setCode(entry.code); setDiffMode(true); }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ fontSize: '11px', color: '#ffcc00', fontWeight: 'bold' }}>{entry.msg}</span><span style={{ fontSize: '9px', color: '#666' }}>{new Date(entry.timestamp).toLocaleTimeString()}</span></div>
+                        <div style={{ fontSize: '10px', color: '#888', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.code.substring(0, 100).replace(/\n/g, ' ')}...</div>
                       </div>
                     ))}
                   </div>
@@ -1054,49 +836,17 @@ const App: React.FC = () => {
               ) : showInspector ? (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div style={{ flex: 1, minHeight: 0 }}>
-                    <StateInspector 
-                      onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} 
-                      onProbe={toggleProbe}
-                      onSetState={(path, val) => audioEngineRef.current.setState(path, val)}
-                      activeProbes={activeProbes}
-                    />
+                    <StateInspector onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} onProbe={toggleProbe} onSetState={(path, val) => audioEngineRef.current.setState(path, val)} activeProbes={activeProbes} />
                   </div>
                   {activeProbes.length > 0 && (
                     <div className="mini-scope-section" style={{ height: '300px', padding: '10px', background: '#111', borderTop: '1px solid #333' }}>
                       <div className="section-title"><Activity size={12} /> PROBE SCOPE (MULTI-TRACE)</div>
-                      <MultiScopeView 
-                        probes={activeProbes} 
-                        onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)}
-                      />
+                      <MultiScopeView probes={activeProbes} onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} />
                     </div>
                   )}
                 </div>
               ) : (
-                <LLMPane 
-                  currentCode={code}
-                  onUpdateCode={handleAgentUpdateCode} 
-                  onSetKnob={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
-                  onTriggerGenerator={(idx) => audioEngineRef.current.triggerGenerator(idx)}
-                  onConfigureInput={(idx, config) => updateInput(idx, config)}
-                  onLoadPreset={(name) => loadPreset(name)}
-                  onSaveSnapshot={(msg) => saveSnapshot(msg)}
-                  onSetProbes={(probes) => {
-                    setActiveProbes(probes);
-                    audioEngineRef.current.setProbes(probes);
-                  }}
-                  onConfigureSequencer={(bpm, steps, playing) => {
-                    if (bpm !== undefined) setSeqBpm(bpm);
-                    if (steps !== undefined) setSeqSteps(steps);
-                    if (playing !== undefined) setSeqPlaying(playing);
-                  }}
-                  getPresets={() => Object.keys(PRESETS)}
-                  getSequencerState={() => ({ bpm: seqBpm, steps: seqSteps, playing: seqPlaying })}
-                  getTelemetry={() => audioEngineRef.current.getLiveState()}
-                  getSpectrum={() => Array.from(audioEngineRef.current.getSpectrumData())}
-                  getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
-                  getAudioMetrics={() => audioEngineRef.current.getAudioMetrics()}
-                  systemPrompt={SYSTEM_PROMPT} 
-                />
+                <LLMPane currentCode={code} onUpdateCode={handleAgentUpdateCode} onSetKnob={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)} onTriggerGenerator={(idx) => audioEngineRef.current.triggerGenerator(idx)} onConfigureInput={(idx, config) => updateInput(idx, config)} onLoadPreset={(name) => loadPreset(name)} onSaveSnapshot={(msg) => saveSnapshot(msg)} onSetProbes={(probes) => { setActiveProbes(probes); audioEngineRef.current.setProbes(probes); }} onConfigureSequencer={(bpm, steps, playing) => { if (bpm !== undefined) setSeqBpm(bpm); if (steps !== undefined) setSeqSteps(steps); if (playing !== undefined) setSeqPlaying(playing); }} getPresets={() => Object.keys(PRESETS)} getSequencerState={() => ({ bpm: seqBpm, steps: seqSteps, playing: seqPlaying })} getTelemetry={() => audioEngineRef.current.getLiveState()} getSpectrum={() => Array.from(audioEngineRef.current.getSpectrumData())} getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)} getAudioMetrics={() => audioEngineRef.current.getAudioMetrics()} systemPrompt={SYSTEM_PROMPT} />
               )}
             </div>
           </div>
