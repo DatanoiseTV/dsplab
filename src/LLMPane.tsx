@@ -541,36 +541,40 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             
             let result: any = {};
             if (name === 'get_current_code') {
-              addDisplayMsg('system', `🛠️ ${label}`);
+              addDisplayMsg('system', `🛠️ Reading current source code context`);
               result = { code: codeRef.current };
             } else if (name === 'grep_search') {
-              addDisplayMsg('system', `🛠️ ${label}: "${fc.args.pattern}"`);
+              const pattern = fc.args.pattern;
+              addDisplayMsg('system', `🔍 Searching for pattern: "${pattern}"`);
               const lines = codeRef.current.split('\n');
               try {
-                const regex = new RegExp(fc.args.pattern, 'i');
+                const regex = new RegExp(pattern, 'i');
                 const matches = lines.map((l, i) => regex.test(l) ? `${i+1}: ${l}` : null).filter(Boolean);
                 result = { matches: matches.length > 0 ? matches : ["No matches found."] };
               } catch(e: any) { result = { error: e.message }; }
             } else if (name === 'apply_diff') {
-              addDisplayMsg('system', `🛠️ ${label}`);
               const { old_string, new_string } = fc.args;
+              const summary = old_string.length > 30 ? old_string.substring(0, 27) + "..." : old_string;
+              addDisplayMsg('system', `🪄 Replacing: "${summary}"`);
+              
               if (codeRef.current.includes(old_string)) {
                 const newCode = codeRef.current.replace(old_string, new_string);
                 const res = await onUpdateCode(newCode);
                 if (res.success) {
-                  addDisplayMsg('system', `✅ applied diff.`);
+                  addDisplayMsg('system', `✅ Applied surgical fix successfully.`);
                   result = { success: true, message: "Search-and-replace successful. Code is valid. Please verify the output on the scope." };
                 } else {
-                  addDisplayMsg('system', `❌ diff failed to compile:\n${res.error}`);
+                  addDisplayMsg('system', `❌ Diff failed to compile:\n${res.error}`);
                   result = { success: false, error: res.error, context: "Your surgical replacement caused a compilation error. Re-check the logic." };
                 }
               } else {
-                addDisplayMsg('system', `❌ error: 'old_string' not found.`);
+                addDisplayMsg('system', `❌ Error: Could not find exact match for: "${summary}"`);
                 result = { success: false, error: "Pattern not found." };
               }
             } else if (name === 'edit_lines') {
-              addDisplayMsg('system', `🛠️ ${label} (${fc.args.start_line}-${fc.args.end_line})`);
-              const { start_line, end_line, new_code } = fc.args;
+              const { start_line, end_line } = fc.args;
+              addDisplayMsg('system', `📝 Editing lines ${start_line} through ${end_line}`);
+              const { new_code } = fc.args;
               const lines = codeRef.current.split('\n');
               if (start_line > 0 && end_line >= start_line && start_line <= lines.length) {
                 const before = lines.slice(0, start_line - 1);
@@ -578,71 +582,71 @@ const LLMPane: React.FC<LLMPaneProps> = ({
                 const updatedCode = [...before, new_code, ...after].join('\n');
                 const res = await onUpdateCode(updatedCode);
                 if (res.success) {
-                  addDisplayMsg('system', `✅ lines ${start_line}-${end_line} replaced.`);
+                  addDisplayMsg('system', `✅ Successfully replaced lines ${start_line}-${end_line}.`);
                   result = { success: true, message: `Lines ${start_line}-${end_line} updated. Code is valid. You should now use get_live_telemetry or get_spectrum_data to verify behavior.` };
                 } else {
-                  addDisplayMsg('system', `❌ edit failed to compile:\n${res.error}`);
+                  addDisplayMsg('system', `❌ Edit on lines ${start_line}-${end_line} failed to compile:\n${res.error}`);
                   result = { success: false, error: res.error, context: "The code you provided resulted in a compilation error. Please analyze the error and fix the logic." };
                 }
               } else {
-                addDisplayMsg('system', `❌ invalid line numbers.`);
+                addDisplayMsg('system', `❌ Invalid line range: ${start_line}-${end_line}`);
                 result = { success: false, error: "Invalid line ranges." };
               }
             } else if (name === 'update_code') {
-              addDisplayMsg('system', `🛠️ ${label}`);
+              addDisplayMsg('system', `🚀 Performing full code rewrite`);
               const res = await onUpdateCode(fc.args.new_code);
               if (res.success) {
-                addDisplayMsg('system', `✅ code updated.`);
+                addDisplayMsg('system', `✅ Entire code block updated and compiled.`);
                 result = { success: true, message: "Full code update successful. Waiting for user approval. Perform verification tools if needed." };
               } else {
-                addDisplayMsg('system', `❌ compilation failed:\n${res.error}`);
+                addDisplayMsg('system', `❌ Full rewrite failed to compile:\n${res.error}`);
                 result = { success: false, error: res.error };
               }
-            } else if (name === 'set_knob') {
-              addDisplayMsg('system', `🛠️ ${label} (${fc.args.cc}, ${fc.args.value})`);
-              onSetKnob(fc.args.cc, fc.args.value);
-              result = { success: true };
-            } else if (name === 'send_midi_cc') {
-              addDisplayMsg('system', `🛠️ ${label} (${fc.args.cc}, ${fc.args.value})`);
-              onSetKnob(fc.args.cc, fc.args.value);
+            } else if (name === 'set_knob' || name === 'send_midi_cc') {
+              const { cc, value } = fc.args;
+              addDisplayMsg('system', `🎛️ Setting CC ${cc} to ${value}`);
+              onSetKnob(cc, value);
               result = { success: true };
             } else if (name === 'trigger_generator') {
-              addDisplayMsg('system', `🛠️ ${label} (${fc.args.index})`);
-              onTriggerGenerator(fc.args.index);
+              const idx = fc.args.index;
+              addDisplayMsg('system', `⚡ Triggering lab generator on strip ${idx + 1}`);
+              onTriggerGenerator(idx);
               result = { success: true };
             } else if (name === 'configure_lab_input') {
-              addDisplayMsg('system', `🛠️ ${label}`);
-              onConfigureInput(fc.args.index, fc.args);
+              const { index, type } = fc.args;
+              addDisplayMsg('system', `⚙️ Configuring lab strip ${index + 1} as ${type.toUpperCase()}`);
+              onConfigureInput(index, fc.args);
               result = { success: true };
             } else if (name === 'load_preset') {
-              addDisplayMsg('system', `🛠️ ${label}: "${fc.args.name}"`);
-              onLoadPreset(fc.args.name);
+              const pName = fc.args.name;
+              addDisplayMsg('system', `📁 Loading library preset: "${pName}"`);
+              onLoadPreset(pName);
               result = { success: true };
             } else if (name === 'list_presets') {
-              addDisplayMsg('system', `🛠️ ${label}`);
+              addDisplayMsg('system', `📚 Browsing preset library`);
               result = { presets: getPresets() };
             } else if (name === 'get_live_telemetry') {
-              addDisplayMsg('system', `🛠️ ${label}`);
+              addDisplayMsg('system', `👁️ Inspecting internal memory states`);
               result = { telemetry: getTelemetry() };
             } else if (name === 'get_spectrum_data') {
-              addDisplayMsg('system', `🛠️ ${label}`);
+              addDisplayMsg('system', `📊 Capturing frequency spectrum snapshot`);
               result = { spectrum: getSpectrum() };
             } else if (name === 'get_audio_metrics') {
-              addDisplayMsg('system', `🛠️ ${label}`);
+              addDisplayMsg('system', `📈 Measuring output signal quality (RMS/Peak/Headroom)`);
               result = { metrics: getAudioMetrics() };
             } else if (name === 'user_message') {
               addDisplayMsg('assistant', fc.args.message);
               result = { success: true };
             } else if (name === 'ask_user') {
-              const friendlyLabel = toolLabels[name];
-              setStatus(`${friendlyLabel}...`);
-              setIsLoading(false); // Pause scanning animation
-              addDisplayMsg('assistant', fc.args.question, undefined, false, fc.args.options);
+              const question = fc.args.question;
+              setStatus("Waiting for your response...");
+              setIsLoading(false); 
+              addDisplayMsg('assistant', question, undefined, false, fc.args.options);
               const userResponse = await new Promise<string>((resolve) => {
                 askUserResolverRef.current = resolve;
               });
               askUserResolverRef.current = null;
-              setIsLoading(true); // Resume scanning
+              setIsLoading(true); 
               setStatus("Thinking...");
               result = { response: userResponse };
             }
