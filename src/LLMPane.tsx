@@ -1281,14 +1281,13 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             {m.role === 'thought' ? (
               <div>
                 <div onClick={() => toggleThought(m.id)} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none' }}>
-                  {expandedThoughts.has(m.id) ? <ChevronDown size={10} /> : <ChevronRight size={10} />} THOUGHTS
+                  {(expandedThoughts.has(m.id) || m.isStreaming) ? <ChevronDown size={10} /> : <ChevronRight size={10} />} THOUGHTS
                 </div>
-                {expandedThoughts.has(m.id) && (
+                {(expandedThoughts.has(m.id) || m.isStreaming) && (
                   <div style={{ marginTop: '4px', borderTop: '1px solid #222', paddingTop: '4px', color: '#666' }}>{m.content}</div>
                 )}
               </div>
-            ) : (
-              <>
+            ) : (              <>
                 <div style={{ position: 'absolute', top: '-14px', left: m.role === 'user' ? 'auto' : '4px', right: m.role === 'user' ? '4px' : 'auto', fontSize: '8px', color: '#555', fontWeight: 'bold' }}>
                   {m.role === 'user' ? 'YOU' : (m.role === 'assistant' ? 'VULT AGENT' : '')}
                 </div>
