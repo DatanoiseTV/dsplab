@@ -16,7 +16,7 @@ export default defineConfig({
             req.on('data', chunk => { body += chunk; });
             req.on('end', () => {
               try {
-                const { code, options } = JSON.parse(body);
+                const requestData = JSON.parse(body);
                 
                 // Spawn node with 1GB stack size
                 const child = spawn('node', [
@@ -40,7 +40,7 @@ export default defineConfig({
                   }
                 });
 
-                child.stdin.write(JSON.stringify({ code, options }));
+                child.stdin.write(JSON.stringify(requestData));
                 child.stdin.end();
 
               } catch (e) {

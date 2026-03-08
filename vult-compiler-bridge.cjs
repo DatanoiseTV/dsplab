@@ -26,10 +26,12 @@ process.stdin.on('end', async () => {
             // Try to use the local vultc binary if available for better C++ generation
             const vultcPath = path.join(__dirname, 'node_modules', '.bin', 'vultc');
             if (fs.existsSync(vultcPath)) {
-                const tmpFile = path.join(__dirname, 'tmp_' + Date.now() + '.vult');
+                const baseName = 'vult_out_' + Date.now();
+                const tmpFile = path.join(__dirname, baseName + '.vult');
+                const outBase = path.join(__dirname, baseName);
                 fs.writeFileSync(tmpFile, code);
                 
-                const vultc = spawn(vultcPath, [tmpFile, '-ccode', '-o', 'out']);
+                const vultc = spawn(vultcPath, [tmpFile, '-ccode', '-o', outBase]);
                 let output = '';
                 let error = '';
                 
@@ -37,33 +39,36 @@ process.stdin.on('end', async () => {
                 vultc.stderr.on('data', data => { error += data; });
                 
                 vultc.on('close', (exitCode) => {
-                    fs.unlinkSync(tmpFile);
+                    try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch(e) {}
                     if (exitCode === 0) {
-                        // Vultc produces out.cpp and out.h
-                        const cppFile = 'out.cpp';
-                        const hFile = 'out.h';
+                        const cppFile = outBase + '.cpp';
+                        const hFile = outBase + '.h';
                         let finalCode = '';
                         if (fs.existsSync(cppFile)) {
-                            finalCode += `// File: ${cppFile}\n` + fs.readFileSync(cppFile, 'utf8');
-                            fs.unlinkSync(cppFile);
+                            finalCode += `// File: ${path.basename(cppFile)}\n` + fs.readFileSync(cppFile, 'utf8');
+                            try { fs.unlinkSync(cppFile); } catch(e) {}
                         }
                         if (fs.existsSync(hFile)) {
-                            finalCode += `\n\n// File: ${hFile}\n` + fs.readFileSync(hFile, 'utf8');
-                            fs.unlinkSync(hFile);
+                            finalCode += `\n\n// File: ${path.basename(hFile)}\n` + fs.readFileSync(hFile, 'utf8');
+                            try { fs.unlinkSync(hFile); } catch(e) {}
                         }
                         process.stdout.write(JSON.stringify({ code: finalCode, errors: [] }));
                     } else {
-                        process.stdout.write(JSON.stringify({ errors: [{ msg: error || "vultc failed" }] }));
+                        process.stdout.write(JSON.stringify({ errors: [{ msg: error || output || "vultc transcompilation failed" }] }));
                     }
                 });
                 return;
             } else {
                 // Fallback to internal compiler.generateC if vultc is not found
-                const compilation = compiler.generateC(code, ["-template", "none"]);
-                process.stdout.write(JSON.stringify({ 
-                    code: Array.isArray(compilation) ? compilation.map(f => `// File: ${f.name}\n${f.code}`).join("\n\n") : (compilation.code || compilation),
-                    errors: []
-                }));
+                try {
+                    const compilation = compiler.generateC(code, ["-template", "none"]);
+                    process.stdout.write(JSON.stringify({ 
+                        code: Array.isArray(compilation) ? compilation.map(f => `// File: ${f.name}\n${f.code}`).join("\n\n") : (compilation.code || compilation),
+                        errors: []
+                    }));
+                } catch (e) {
+                    process.stdout.write(JSON.stringify({ errors: [{ msg: "Fallback C transcompilation failed: " + e.toString() }] }));
+                }
                 return;
             }
         }
