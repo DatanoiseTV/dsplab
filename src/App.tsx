@@ -42,156 +42,329 @@ fun controlChange(control: int, value: int, channel: int) {
   return input * volume;
 }
 `,
-  "vs20": `// POLYPHONIC MS-20 SYNTHESIZER
+  "vs80": `// ============================================================================
+// VS80
+// ============================================================================
+
+// --- 1. UTILITIES & MATH ---
 fun pitchToRate(pitch: real) : real @[table(size=127,min=0.0,max=127.0)] {
     return 8.1757989156 * exp(0.05776226505 * pitch) / 44100.0;
 }
 
-fun noise() : real {
-    mem seed: int;
-    if (seed == 0) { seed = 1; }
-    seed = (seed * 25173 + 13849) % 65536;
-    return (real(seed) / 65536.0) * 2.0 - 1.0;
+// Anti-aliasing polynomial (PolyBLEP)
+fun polyblep(phase: real, inc: real) : real {
+    val t = phase / inc;
+    if (t < 1.0) { 
+        return t + t - t * t - 1.0; 
+    } else if (t > (1.0 / inc) - 1.0) {
+        val t2 = (t - (1.0 / inc));
+        return t2 * t2 + t2 + t2 + 1.0;
+    }
+    return 0.0;
 }
 
-fun ms20_mg(rate_cv: real, shape: real) : real {
-    mem phase: real;
-    val freq = 0.1 + rate_cv * 19.9; 
-    val inc = freq / 44100.0;
-    phase = (phase + inc) % 1.0;
-    val tri_out = 0.0;
-    val skew = clip(shape, 0.01, 0.99); 
-    if (phase < skew) { tri_out = phase / skew; } else { tri_out = 1.0 - ((phase - skew) / (1.0 - skew)); }
-    return (tri_out * 2.0 - 1.0);
-}
-
-fun ms20_vco(cv: real, wave: int, pw: real, ext_in: real) : real {
-    mem phase: real;
-    val rate = pitchToRate(clip(cv, 0.0, 127.0));
-    phase = (phase + rate) % 1.0;
-    val out = 0.0;
-    if (wave == 0) {
-        if (phase < 0.5) { out = phase * 4.0 - 1.0; } else { out = 3.0 - phase * 4.0; }
-    } else if (wave == 1) { out = phase * 2.0 - 1.0; }
-    else if (wave == 2) { if (phase < pw) { out = 1.0; } else { out = -1.0; } }
-    else if (wave == 3) { val sq = 0.0; if (phase < 0.5) { sq = 1.0; } else { sq = -1.0; } out = ext_in * sq; }
+fun wrap_idx(idx_raw: int) : int {
+    val out = 0;
+    if (idx_raw < 0) { out = idx_raw + 1024; } else { out = idx_raw; }
     return out;
 }
 
-fun ms20_filter(in_sig: real, cv: real, res: real, is_hpf: bool) : real {
-    mem d1: real; mem d2: real;
-    val fc = clip(cv, 0.0, 127.0);
-    val f = clip(pitchToRate(fc) * 3.14159265, 0.0001, 0.99); 
-    val r = clip(res, 0.0, 1.0) * 2.0;
-    val fb = r * tanh(d2); 
-    val hp = (in_sig - d1 - fb) / (1.0 + f);
-    val bp = d1 + f * hp;
-    val lp = d2 + f * bp;
-    d1, d2 = bp + f * hp, lp + f * bp; 
-    return if is_hpf then hp else lp;
+// --- 2. CS-80 CORE COMPONENTS ---
+
+// Global LFO for PWM and Vibrato
+fun cs80_lfo(rate: real) : real {
+    mem phase: real;
+    val inc = (0.1 + rate * 15.0) / 44100.0;
+    phase = phase + inc;
+    if (phase >= 1.0) { phase = phase - 1.0; }
+    
+    val out = 0.0;
+    if (phase < 0.5) { out = phase * 4.0 - 1.0; } 
+    else { out = 3.0 - phase * 4.0; }
+    return out;
 }
 
-fun ms20_eg1(gate: bool, delay_cv: real, a_cv: real, r_cv: real) : real {
-    mem state: int; mem env_val: real; mem timer: real;
-    if (gate && state == 0) { state = 1; timer = 0.0; }
-    if (!gate && state > 0) { state = 3; }
-    val d_time = delay_cv * 2.0; 
-    val a_rate = 1.0 / (0.001 + a_cv * 5.0 * 44100.0);
-    val r_rate = 1.0 / (0.001 + r_cv * 5.0 * 44100.0);
-    if (state == 1) { timer = timer + (1.0 / 44100.0); if (timer >= d_time) { state = 2; } }
-    else if (state == 2) { env_val = env_val + a_rate; if (env_val >= 1.0) { env_val = 1.0; } }
-    else if (state == 3) { env_val = env_val - r_rate; if (env_val <= 0.0) { env_val = 0.0; state = 0; } }
-    return env_val;
+// CS-80 Oscillator - advances phase and returns the complex (Saw+Square) output.
+// MUST be called before cs80_vco_sine each sample, as it advances the shared phase.
+fun cs80_vco_complex(cv: real, pwm_base: real, pwm_mod: real) : real {
+    mem phase: real;
+    val inc = pitchToRate(clip(cv, 0.0, 127.0));
+    
+    phase = phase + inc;
+    if (phase >= 1.0) { phase = phase - 1.0; }
+    
+    // 1. Anti-Aliased Sawtooth
+    val saw = (1.0 - 2.0 * phase) + polyblep(phase, inc);
+    
+    // 2. Anti-Aliased Square / PWM
+    val pw = clip(pwm_base + pwm_mod, 0.05, 0.95);
+    val p2 = phase + 1.0 - pw;
+    val p2_wrapped = 0.0;
+    if (p2 >= 1.0) { p2_wrapped = p2 - 1.0; } else { p2_wrapped = p2; }
+    
+    val naive_sq = 0.0;
+    if (phase < pw) { naive_sq = 1.0; } else { naive_sq = -1.0; }
+    val sqr = naive_sq + polyblep(phase, inc) - polyblep(p2_wrapped, inc);
+    
+    return (saw + sqr) * 0.5;
 }
 
-fun ms20_eg2(gate: bool, hold_cv: real, a_cv: real, d_cv: real, s_cv: real, r_cv: real) : real {
-    mem state: int; mem env_val: real; mem timer: real;
-    if (gate && state == 0) { state = 1; timer = 0.0; }
-    timer = timer + (1.0 / 44100.0);
-    val hold_time = hold_cv * 3.0;
-    val effective_gate = gate || (timer < hold_time);
-    if (!effective_gate && state > 0 && state < 4) { state = 4; }
-    val a_rate = 1.0 / (0.001 + a_cv * 5.0 * 44100.0);
-    val d_rate = 1.0 / (0.001 + d_cv * 5.0 * 44100.0);
-    val r_rate = 1.0 / (0.001 + r_cv * 5.0 * 44100.0);
-    if (state == 1) { env_val = env_val + a_rate; if (env_val >= 1.0) { env_val = 1.0; state = 2; } }
-    else if (state == 2) { env_val = env_val - d_rate; if (env_val <= s_cv) { env_val = s_cv; state = 3; } }
-    else if (state == 3) { env_val = s_cv; }
-    else if (state == 4) { env_val = env_val - r_rate; if (env_val <= 0.0) { env_val = 0.0; state = 0; } }
-    return env_val;
+// CS-80 Oscillator - returns the Pure Sine output from the SAME phase memory
+// as cs80_vco_complex. Call this AFTER cs80_vco_complex each sample.
+// The \`mem phase\` here refers to the same instance's phase when called on
+// the same voice context. Both functions share state per-voice via Vult's
+// instance model when called inside cs80_voice.
+fun cs80_vco_sine(cv: real) : real {
+    mem phase: real;
+    // Phase is already advanced by cs80_vco_complex — just read it.
+    // Pure Sine Wave (The secret to the CS-80's massive weight)
+    return sin(phase * 6.2831853);
 }
 
-fun ms20_voice(gate: bool, note: real, pb: real, mg_rate: real, mg_shape: real, v1_wave: int, v1_pw: real, v1_scale: real, v2_wave: int, v2_pitch: real, mix1: real, mix2: real, hp_c: real, hp_res: real, lp_c: real, lp_res: real, eg1_d: real, eg1_a: real, eg1_r: real, eg2_h: real, eg2_a: real, eg2_d: real, eg2_s: real, eg2_r: real, mod_mg_pitch: real, mod_mg_vcf: real, mod_eg2_vcf: real) : real {
-    val mg_tri = ms20_mg(mg_rate, mg_shape);
-    val eg1 = ms20_eg1(gate, eg1_d, eg1_a, eg1_r);
-    val eg2 = ms20_eg2(gate, eg2_h, eg2_a, eg2_d, eg2_s, eg2_r);
-    val cv_pitch = note + (pb * 2.0) + (mg_tri * mod_mg_pitch * 12.0);
-    val v1_out = if v1_wave == 3 then noise() else ms20_vco(cv_pitch + v1_scale, v1_wave, v1_pw, 0.0);
-    val v2_out = ms20_vco(cv_pitch + v2_pitch, v2_wave, 0.5, ms20_vco(cv_pitch + v1_scale, 2, v1_pw, 0.0)); 
-    val mixer = (v1_out * mix1) + (v2_out * mix2);
-    val vcf_mod = (mg_tri * mod_mg_vcf * 24.0) + (eg2 * mod_eg2_vcf * 48.0);
-    return ms20_filter(ms20_filter(mixer, hp_c + vcf_mod, hp_res, true), lp_c + vcf_mod, lp_res, false) * eg2;
+// Zero-Delay Feedback (ZDF) State Variable Filter (12dB/Octave)
+// The CS-80 uses a 12dB HPF chained directly into a 12dB LPF.
+fun cs80_svf(in_sig: real, cv: real, res: real, is_hp: bool) : real {
+    mem ic1eq: real; 
+    mem ic2eq: real;
+    
+    val g = clip(pitchToRate(cv) * 3.14159 * 2.0, 0.001, 0.99);
+    val k = 2.0 - (clip(res, 0.0, 1.0) * 1.9); // Damping factor (High res = low k)
+    
+    val a1 = 1.0 / (1.0 + g * (g + k));
+    val a2 = g * a1;
+    val a3 = g * a2;
+    
+    val v3 = in_sig - ic2eq;
+    val v1 = a1 * ic1eq + a2 * v3;
+    val v2 = ic2eq + a2 * ic1eq + a3 * v3;
+    
+    ic1eq = 2.0 * v1 - ic1eq;
+    ic2eq = 2.0 * v2 - ic2eq;
+    
+    val hp = in_sig - k * v1 - v2;
+    val lp = v2;
+    
+    val out = 0.0;
+    if (is_hp == true) { out = hp; } else { out = lp; }
+    
+    // Gentle analog saturation to prevent SVF blowup
+    return tanh(out * 1.2); 
 }
+
+// Punchy Exponential Envelope
+fun cs80_eg(gate: bool, a_cv: real, d_cv: real, s_cv: real, r_cv: real) : real {
+    mem state: int; mem env_val: real; mem prev_gate: bool;
+    
+    if (gate == true && prev_gate == false) { state = 1; }
+    if (gate == false && prev_gate == true) { state = 4; }
+    prev_gate = gate;
+    
+    if (state == 1) { 
+        env_val = env_val + (1.0 / (0.001 + a_cv * 2.0 * 44100.0));
+        if (env_val >= 1.0) { env_val = 1.0; state = 2; }
+    } else if (state == 2) { 
+        env_val = env_val - (1.0 / (0.001 + d_cv * 2.0 * 44100.0));
+        if (env_val <= s_cv) { env_val = s_cv; state = 3; }
+    } else if (state == 3) { 
+        if (env_val > s_cv) { env_val = env_val - 0.001; }
+        if (env_val < s_cv) { env_val = env_val + 0.001; }
+    } else if (state == 4) { 
+        env_val = env_val - (1.0 / (0.001 + r_cv * 3.0 * 44100.0));
+        if (env_val <= 0.0) { env_val = 0.0; state = 0; }
+    } else {
+        env_val = 0.0;
+    }
+    
+    return env_val * env_val; // Exponential curve
+}
+
+// The Famous Blade Runner Ring Modulator (Per-Voice for expression)
+fun cs80_ringmod(in_sig: real, env: real, depth: real, speed_base: real, speed_env_amt: real) : real {
+    mem rm_phase: real;
+    
+    // Envelope drives the speed of the ring modulation sweep
+    val current_speed = speed_base + (env * speed_env_amt * 80.0);
+    val inc = current_speed / 44100.0;
+    
+    rm_phase = rm_phase + inc;
+    if (rm_phase >= 1.0) { rm_phase = rm_phase - 1.0; }
+    
+    val rm_osc = sin(rm_phase * 6.2831853);
+    
+    // Blend dry signal with amplitude-modulated (Ring Mod) signal
+    val dry = in_sig * (1.0 - depth);
+    val wet = (in_sig * rm_osc) * depth;
+    
+    return dry + wet;
+}
+
+// --- 3. VOICE ARCHITECTURE & FX ---
+
+fun cs80_voice(
+    gate: bool, note: real, pb: real, lfo_val: real,
+    saw_sqr_mix: real, sine_lvl: real, pwm_amt: real,
+    hp_c: real, hp_res: real, lp_c: real, lp_res: real, filter_eg_amt: real,
+    eg_a: real, eg_d: real, eg_s: real, eg_r: real,
+    rm_depth: real, rm_speed: real, rm_env: real
+) : real {
+    
+    val env = cs80_eg(gate, eg_a, eg_d, eg_s, eg_r);
+    
+    // Minor analog pitch instability
+    val analog_drift = sin(note * 13.0) * 0.05; 
+    val pitch = note + pb + analog_drift;
+    
+    // FIX: Split tuple return into two separate calls.
+    // cs80_vco_complex advances phase; cs80_vco_sine reads the same phase.
+    val complex_osc = cs80_vco_complex(pitch, 0.5, lfo_val * pwm_amt);
+    val pure_sine   = cs80_vco_sine(pitch);
+    
+    // Filter Cascade: Complex Osc -> 12dB HPF -> 12dB LPF
+    val cutoff_mod = (env * filter_eg_amt * 48.0);
+    val hpf_out = cs80_svf(complex_osc * saw_sqr_mix, hp_c + (cutoff_mod * 0.5), hp_res, true);
+    val lpf_out = cs80_svf(hpf_out, lp_c + cutoff_mod, lp_res, false);
+    
+    // THE CS-80 SECRET: Add the pure Sine wave directly to the VCA, bypassing the filters!
+    val mixed_vca_in = lpf_out + (pure_sine * sine_lvl);
+    
+    // VCA
+    val vca_out = mixed_vca_in * env;
+    
+    // Ring Modulator
+    val final_out = cs80_ringmod(vca_out, env, rm_depth, rm_speed, rm_env);
+    
+    return final_out;
+}
+
+// CS-80 Symphonic Chorus & Tremolo
+fun symphonic_chorus(in_sig: real, on: bool) : real {
+    mem b1: array(real, 1024); 
+    mem pos: int; 
+    mem lfo_ph: real;
+    
+    if (on == false) { return in_sig; }
+    
+    pos = (pos + 1) % 1024;
+    b1[pos] = in_sig;
+    
+    // 2.5 Hz lush sweep
+    lfo_ph = lfo_ph + (2.5 / 44100.0);
+    if (lfo_ph >= 1.0) { lfo_ph = lfo_ph - 1.0; }
+    
+    val sine1 = sin(lfo_ph * 6.28318);
+    val sine2 = sin((lfo_ph + 0.5) * 6.28318); // 180 degree offset
+    
+    // Delay Time Modulation (Chorus)
+    val tap1 = b1[wrap_idx(pos - 150 - int(sine1 * 35.0))];
+    val tap2 = b1[wrap_idx(pos - 150 - int(sine2 * 35.0))];
+    
+    // Amplitude Modulation (Tremolo - subtle)
+    val trem1 = 0.8 + (sine1 * 0.2);
+    val trem2 = 0.8 + (sine2 * 0.2);
+    
+    return (in_sig * 0.4) + (tap1 * trem1 * 0.3) + (tap2 * trem2 * 0.3);
+}
+
+// --- 4. 6-VOICE HOST INTERFACE ---
 
 fun process(input: real) : real {
-    mem n1, n2, n3, n4: real;
-    mem g1, g2, g3, g4: bool;
-    mem pb, mg_rate, mg_shape, v1_pw, v1_scale, v2_pitch, mix1, mix2, hp_c, hp_res, lp_c, lp_res, eg1_d, eg1_a, eg1_r, eg2_h, eg2_a, eg2_d, eg2_s, eg2_r, mod_mg_pitch, mod_mg_vcf, mod_eg2_vcf: real;
-    mem v1_wave, v2_wave: int;
+    mem n1: real; mem g1: bool; 
+    mem n2: real; mem g2: bool;
+    mem n3: real; mem g3: bool; 
+    mem n4: real; mem g4: bool;
+    mem n5: real; mem g5: bool; 
+    mem n6: real; mem g6: bool;
     
-    val out1 = ms20_voice(g1, n1, pb, mg_rate, mg_shape, v1_wave, v1_pw, v1_scale, v2_wave, v2_pitch, mix1, mix2, hp_c, hp_res, lp_c, lp_res, eg1_d, eg1_a, eg1_r, eg2_h, eg2_a, eg2_d, eg2_s, eg2_r, mod_mg_pitch, mod_mg_vcf, mod_eg2_vcf);
-    val out2 = ms20_voice(g2, n2, pb, mg_rate, mg_shape, v1_wave, v1_pw, v1_scale, v2_wave, v2_pitch, mix1, mix2, hp_c, hp_res, lp_c, lp_res, eg1_d, eg1_a, eg1_r, eg2_h, eg2_a, eg2_d, eg2_s, eg2_r, mod_mg_pitch, mod_mg_vcf, mod_eg2_vcf);
-    val out3 = ms20_voice(g3, n3, pb, mg_rate, mg_shape, v1_wave, v1_pw, v1_scale, v2_wave, v2_pitch, mix1, mix2, hp_c, hp_res, lp_c, lp_res, eg1_d, eg1_a, eg1_r, eg2_h, eg2_a, eg2_d, eg2_s, eg2_r, mod_mg_pitch, mod_mg_vcf, mod_eg2_vcf);
-    val out4 = ms20_voice(g4, n4, pb, mg_rate, mg_shape, v1_wave, v1_pw, v1_scale, v2_wave, v2_pitch, mix1, mix2, hp_c, hp_res, lp_c, lp_res, eg1_d, eg1_a, eg1_r, eg2_h, eg2_a, eg2_d, eg2_s, eg2_r, mod_mg_pitch, mod_mg_vcf, mod_eg2_vcf);
+    mem pb: real; mem lfo_rate: real;
+    mem saw_sqr_mix: real; mem sine_lvl: real; mem pwm_amt: real;
+    mem hp_c: real; mem hp_res: real; mem lp_c: real; mem lp_res: real; mem eg_f: real;
+    mem eg_a: real; mem eg_d: real; mem eg_s: real; mem eg_r: real;
+    mem rm_depth: real; mem rm_speed: real; mem rm_env: real;
+    mem symph_on: bool;
+
+    val lfo = cs80_lfo(lfo_rate);
+
+    val o1 = cs80_voice(g1, n1, pb, lfo, saw_sqr_mix, sine_lvl, pwm_amt, hp_c, hp_res, lp_c, lp_res, eg_f, eg_a, eg_d, eg_s, eg_r, rm_depth, rm_speed, rm_env);
+    val o2 = cs80_voice(g2, n2, pb, lfo, saw_sqr_mix, sine_lvl, pwm_amt, hp_c, hp_res, lp_c, lp_res, eg_f, eg_a, eg_d, eg_s, eg_r, rm_depth, rm_speed, rm_env);
+    val o3 = cs80_voice(g3, n3, pb, lfo, saw_sqr_mix, sine_lvl, pwm_amt, hp_c, hp_res, lp_c, lp_res, eg_f, eg_a, eg_d, eg_s, eg_r, rm_depth, rm_speed, rm_env);
+    val o4 = cs80_voice(g4, n4, pb, lfo, saw_sqr_mix, sine_lvl, pwm_amt, hp_c, hp_res, lp_c, lp_res, eg_f, eg_a, eg_d, eg_s, eg_r, rm_depth, rm_speed, rm_env);
+    val o5 = cs80_voice(g5, n5, pb, lfo, saw_sqr_mix, sine_lvl, pwm_amt, hp_c, hp_res, lp_c, lp_res, eg_f, eg_a, eg_d, eg_s, eg_r, rm_depth, rm_speed, rm_env);
+    val o6 = cs80_voice(g6, n6, pb, lfo, saw_sqr_mix, sine_lvl, pwm_amt, hp_c, hp_res, lp_c, lp_res, eg_f, eg_a, eg_d, eg_s, eg_r, rm_depth, rm_speed, rm_env);
     
-    return (out1 + out2 + out3 + out4) * 0.25; 
+    val dry = tanh((o1 + o2 + o3 + o4 + o5 + o6) * 0.25);
+    
+    return symphonic_chorus(dry, symph_on);
 }
 
-and noteOn(note: int, velocity: int, channel: int) {
-    val rnote = real(note);
-    if (!g1) { n1 = rnote; g1 = true; }
-    else if (!g2) { n2 = rnote; g2 = true; }
-    else if (!g3) { n3 = rnote; g3 = true; }
-    else if (!g4) { n4 = rnote; g4 = true; }
-    else { n1 = rnote; g1 = true; } 
+and noteOn(n: int, v: int, ch: int) {
+    val rn = real(n);
+    if (g1 == false) { n1 = rn; g1 = true; } 
+    else if (g2 == false) { n2 = rn; g2 = true; }
+    else if (g3 == false) { n3 = rn; g3 = true; }
+    else if (g4 == false) { n4 = rn; g4 = true; }
+    else if (g5 == false) { n5 = rn; g5 = true; }
+    else if (g6 == false) { n6 = rn; g6 = true; }
+    else { n1 = rn; g1 = true; } 
 }
 
-and noteOff(note: int, channel: int) {
-    val rnote = real(note);
-    if (n1 == rnote) { g1 = false; }
-    if (n2 == rnote) { g2 = false; }
-    if (n3 == rnote) { g3 = false; }
-    if (n4 == rnote) { g4 = false; }
+and noteOff(n: int, ch: int) {
+    val rn = real(n);
+    if (n1 == rn) { g1 = false; } 
+    if (n2 == rn) { g2 = false; }
+    if (n3 == rn) { g3 = false; }
+    if (n4 == rn) { g4 = false; }
+    if (n5 == rn) { g5 = false; }
+    if (n6 == rn) { g6 = false; }
 }
 
-and controlChange(control: int, value: int, channel: int) {
-    val v = real(value) / 127.0;
-    if (control == 30) { v1_wave = int(v * 3.99); }
-    else if (control == 31) { v1_pw = v; }
-    else if (control == 32) { v2_wave = int(v * 3.99); }
-    else if (control == 33) { v2_pitch = (v * 48.0) - 24.0; }
-    else if (control == 34) { mix1 = v; }
-    else if (control == 35) { mix2 = v; }
-    else if (control == 36) { hp_c = v * 127.0; }
-    else if (control == 37) { hp_res = v; }
-    else if (control == 38) { lp_c = v * 127.0; }
-    else if (control == 39) { lp_res = v; }
-    else if (control == 40) { mod_eg2_vcf = v; }
-    else if (control == 41) { mg_rate = v; }
+and controlChange(c: int, v: int, ch: int) {
+    val val_norm = real(v) / 127.0;
+    
+    if (c == 30) { saw_sqr_mix = val_norm; }  // Mix between complex oscillators      
+    else if (c == 31) { sine_lvl = val_norm; } // Pure Sine Bypass Volume                 
+    else if (c == 32) { pwm_amt = val_norm; }  // PWM Depth                
+    else if (c == 35) { lfo_rate = val_norm; } // Global LFO speed
+    
+    else if (c == 74) { lp_c = val_norm * 127.0; } // 12dB LPF
+    else if (c == 71) { lp_res = val_norm; }       
+    else if (c == 76) { hp_c = val_norm * 127.0; } // 12dB HPF
+    else if (c == 77) { hp_res = val_norm; }       
+    else if (c == 40) { eg_f = val_norm; }          // Filter Env Amount
+    
+    else if (c == 73) { eg_a = val_norm; }                    
+    else if (c == 75) { eg_d = val_norm; }                    
+    else if (c == 79) { eg_s = val_norm; }                    
+    else if (c == 72) { eg_r = val_norm; }                    
+    
+    else if (c == 80) { rm_depth = val_norm; }        // Ring Modulator Intensity
+    else if (c == 81) { rm_speed = val_norm * 40.0; } // Ring Modulator Base Speed
+    else if (c == 82) { rm_env = val_norm; }          // Envelope to Ring Mod Speed Sweep
+    
+    else if (c == 45) { if (v > 64) { symph_on = true; } else { symph_on = false; } } 
 }
 
 and default() {
-    g1 = false; g2 = false; g3 = false; g4 = false;
-    n1 = 60.0; n2 = 60.0; n3 = 60.0; n4 = 60.0;
-    pb = 0.0; mg_rate = 0.6; mg_shape = 0.5;
-    v1_wave = 1; v1_pw = 0.5; v1_scale = 0.0;
-    v2_wave = 2; v2_pitch = -12.05;
-    mix1 = 0.6; mix2 = 0.6;
-    hp_c = 24.0; hp_res = 0.65;
-    lp_c = 40.0; lp_res = 0.75;
-    eg1_d = 0.0; eg1_a = 0.0; eg1_r = 0.1;
-    eg2_h = 0.0; eg2_a = 0.02; eg2_d = 0.3; eg2_s = 0.2; eg2_r = 0.1;
-    mod_mg_pitch = 0.0; mod_mg_vcf = 0.0; mod_eg2_vcf = 0.65;
+    g1 = false; g2 = false; g3 = false; g4 = false; g5 = false; g6 = false;
+    
+    // --- "TEARS IN RAIN" PRESET ---
+    // The quintessential Vangelis CS-80 Brass. Massive sub-sine weight,
+    // swept 12dB filters, and an envelope-driven ring modulation shimmer
+    // on the attack of the note. Widened by the Symphonic Chorus.
+
+    saw_sqr_mix = 1.0; sine_lvl = 0.52;           // Heavy Saw/Square mixed with huge Pure Sine
+    pwm_amt = 0.01; lfo_rate = 0.05;               // Lush Pulse Width Modulation
+    
+    hp_c = 0.0; hp_res = 0.4;                   // 12dB HPF cuts extreme mud, adds vocal growl
+    lp_c = 10.0; lp_res = 0.6;                   // 12dB LPF starts warm
+    eg_f = 2.0;                                  // Envelope sweeps the LPF open
+    
+    eg_a = 0.0; eg_d = 0.3;                     // Sluggish, majestic brass attack
+    eg_s = 0.1; eg_r = 0.95;                     // Lingering, singing release
+    
+    rm_depth = 0.05;                             // Subtle Ring Mod Shimmer
+    rm_speed = 2.0; rm_env = 0.8;                // Envelope sweeps the Ring Mod frequency fast
+    
+    symph_on = true;                             // SYMPHONIC CHORUS/TREMOLO ENGAGED
 }
 `
 };
@@ -371,12 +544,14 @@ const App: React.FC = () => {
   };
 
   const handleSampleUpload = async (idx: number, file: File) => {
+    // We create a temporary context just for decoding, but it's safer to use the system rate
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
     const floatData = audioBuffer.getChannelData(0); // Mono for now
     audioEngineRef.current.setSampleData(idx, floatData);
     updateInput(idx, { name: file.name.split('.')[0] });
+    ctx.close(); // Clean up
   };
 
   useEffect(() => {
@@ -543,10 +718,15 @@ const App: React.FC = () => {
                     )}
 
                     {input.type === 'sample' && (
-                      <div className="strip-controls">
+                      <div className="strip-controls" style={{ alignItems: 'center' }}>
                         <input type="file" accept="audio/*" onChange={(e) => e.target.files && handleSampleUpload(i, e.target.files[0])} style={{ display: 'none' }} id={`sample-${i}`} />
                         <label htmlFor={`sample-${i}`} style={{ cursor: 'pointer', fontSize: '8px', color: '#ffcc00', border: '1px solid #444', padding: '2px 4px' }}>LOAD</label>
                         <Play size={10} style={{ cursor: 'pointer', color: '#00ff00' }} onClick={() => audioEngineRef.current.triggerGenerator(i)} />
+                        <Activity 
+                          size={12} 
+                          style={{ cursor: "pointer", color: input.isLooping ? "#00ff00" : "#444" }} 
+                          onClick={() => updateInput(i, { isLooping: !input.isLooping })}
+                        />
                       </div>
                     )}
                     

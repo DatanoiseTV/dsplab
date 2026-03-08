@@ -105,16 +105,23 @@ const MultiScopeView: React.FC<MultiScopeViewProps> = ({ probes, getProbedData }
         ctx.beginPath();
 
         const sliceWidth = drawWidth / (timebase - 1);
-        let min = Math.min(...history);
-        let max = Math.max(...history);
+        
+        // Fast Auto-scale logic
+        let min = history[0];
+        let max = history[0];
+        for (let i = 1; i < history.length; i++) {
+          if (history[i] < min) min = history[i];
+          if (history[i] > max) max = history[i];
+        }
         let range = Math.max(0.0001, max - min);
 
-        history.forEach((val, i) => {
+        for (let i = 0; i < history.length; i++) {
+          const val = history[i];
           const norm = (val - min) / range;
           const x = i * sliceWidth;
           const y = (idx * laneHeight) + (laneHeight - norm * laneHeight * 0.8) - (laneHeight * 0.1);
           if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
+        }
         ctx.stroke();
 
         // Label and Value with better visibility

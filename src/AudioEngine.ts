@@ -17,6 +17,7 @@ export interface InputSource {
   deviceId?: string;
   oscType: 'sine' | 'sawtooth' | 'square' | 'triangle';
   isCycling?: boolean;
+  isLooping?: boolean;
 }
 
 export class AudioEngine {

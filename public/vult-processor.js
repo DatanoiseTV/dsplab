@@ -41,7 +41,7 @@ class VultProcessor extends AudioWorkletProcessor {
     this.activeProbes = [];
     this.probeBuffers = {};
     this.genStates = [];
-    this.sampleBuffers = {}; // Map of source index -> Float32Array
+    this.sampleBuffers = {}; 
     
     this.discoveredKeys = [];
 
@@ -50,7 +50,6 @@ class VultProcessor extends AudioWorkletProcessor {
       if (type === 'updateCode') {
         try {
           this.vultInstance = null;
-          // Clean construction of the function body
           const body = vultRuntime + "\n" + 
                        "var exports = {};\n" + 
                        data.jsCode + "\n" +
@@ -104,6 +103,8 @@ class VultProcessor extends AudioWorkletProcessor {
           this.genStates[data.index] = 1.0;
           this.phases[data.index] = 0;
         }
+      } else if (type === 'setSampleRate') {
+        this.sampleRate = data.sampleRate || 44100;
       } else if (type === 'noteOn' || type === 'noteOff' || type === 'controlChange') {
         if (this.vultInstance) {
           const method = type === 'noteOn' ? (this.vultInstance.liveNoteOn || this.vultInstance.noteOn) :
@@ -178,7 +179,7 @@ class VultProcessor extends AudioWorkletProcessor {
         if (!src) { inputValues.push(0); continue; }
         
         if (src.type === 'oscillator') {
-          const phaseInc = (src.freq || 440) / 44100;
+          const phaseInc = (src.freq || 440) / this.sampleRate;
           this.phases[s] = (this.phases[s] + (isNaN(phaseInc) ? 0 : phaseInc)) % 1.0;
           const p = this.phases[s];
           if (src.oscType === 'sine') inputValues.push(Math.sin(p * 2 * Math.PI));
@@ -189,9 +190,13 @@ class VultProcessor extends AudioWorkletProcessor {
         } else if (src.type === 'sample') {
           const buffer = this.sampleBuffers[s];
           if (buffer) {
-            const pos = Math.floor(this.phases[s]);
+            let pos = Math.floor(this.phases[s]);
             if (pos < buffer.length) {
               inputValues.push(buffer[pos]);
+              this.phases[s]++;
+            } else if (src.isLooping) {
+              this.phases[s] = 0;
+              inputValues.push(buffer[0]);
               this.phases[s]++;
             } else {
               inputValues.push(0);
