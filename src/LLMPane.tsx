@@ -849,7 +849,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
               };
             } else if (name === 'write_plan') {
               addDisplayMsg('system', `📝 Documenting internal development plan`);
-              result = { success: true };
+              result = { success: true, next_step: "Plan recorded. PROCEED IMMEDIATELY to implement the first step using editing tools. DO NOT stop the autonomous loop." };
             } else if (name === 'store_snapshot') {
               addDisplayMsg('system', `📸 Storing snapshot: "${fc.args.message}"`);
               onSaveSnapshot(fc.args.message);
