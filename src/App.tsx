@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Square, Cpu, Zap, Activity, Save, Download, Sliders, AudioWaveform, Code2, Database } from 'lucide-react';
+import { Play, Square, Cpu, Zap, Activity, Save, Download, Sliders, AudioWaveform, Code2, Database, History } from 'lucide-react';
 import { AudioEngine } from './AudioEngine';
 import type { InputSource, SourceType } from './AudioEngine';
 import { MIDIController } from './MIDIController';
@@ -429,6 +429,8 @@ const App: React.FC = () => {
   const [activeProbes, setActiveProbes] = useState<string[]>([]);
   const [diffMode, setDiffMode] = useState(false);
   const [originalCode, setOriginalCode] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+  const [codeHistory, setCodeHistory] = useState<{timestamp: number, code: string, msg: string}[]>([]);
   
   const [inputs, setInputs] = useState<InputSource[]>([]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
@@ -466,6 +468,16 @@ const App: React.FC = () => {
 
   const [ccLabels, setCcLabels] = useState<Record<number, string>>({});
 
+  const saveSnapshot = useCallback((msg: string = "Manual Snapshot") => {
+    setCodeHistory(prev => {
+      // Don't save if identical to last snapshot
+      if (prev[0] && prev[0].code === code && msg === "Autosave") return prev;
+      const next = [{ timestamp: Date.now(), code, msg }, ...prev].slice(0, 100);
+      localStorage.setItem('vult_code_history', JSON.stringify(next));
+      return next;
+    });
+  }, [code]);
+
   const parseVultInputs = useCallback((vultCode: string) => {
     const match = vultCode.match(/fun\s+process\s*\(([^)]*)\)/);
     if (!match) return [];
@@ -488,6 +500,9 @@ const App: React.FC = () => {
       try {
         const lastSession = localStorage.getItem('vult_session_code');
         const lastProjectName = localStorage.getItem('vult_session_name');
+        const historyRaw = localStorage.getItem('vult_code_history');
+        
+        if (historyRaw) setCodeHistory(JSON.parse(historyRaw));
         
         let startCode = code;
         if (lastSession) {
@@ -518,6 +533,14 @@ const App: React.FC = () => {
     startup();
     return () => { audioEngineRef.current.stop(); };
   }, []);
+
+  // Autosave Logic
+  useEffect(() => {
+    const timer = setInterval(() => {
+      saveSnapshot("Autosave");
+    }, 300000); // Autosave every 5 minutes
+    return () => clearInterval(timer);
+  }, [saveSnapshot]);
 
   useEffect(() => {
     audioEngineRef.current.setSources(inputs);
@@ -645,6 +668,7 @@ const App: React.FC = () => {
     projects[projectName] = code;
     localStorage.setItem('vult_projects', JSON.stringify(projects));
     setSavedProjects(Object.keys(projects));
+    saveSnapshot("Manual Project Save");
     setStatus('Saved');
   };
 
@@ -703,6 +727,7 @@ const App: React.FC = () => {
     const result = await audioEngineRef.current.updateCode(newCode);
     
     if (result.success) {
+      saveSnapshot("Agent Update");
       setDiffMode(true); // Only show side-by-side diff after success
       setEditorMarkers([]);
       setStatus('Trial Compile OK');
@@ -752,7 +777,8 @@ const App: React.FC = () => {
         <div className="nav-item" title="Save" onClick={handleSave}><Save size={18} /></div>
         <div className="nav-item" title="Download Vult" onClick={handleDownload}><Download size={18} /></div>
         <div className="nav-item" title="Export C++" onClick={handleExportCPP}><Code2 size={18} /></div>
-        <div className={`nav-item ${showInspector ? 'active' : ''}`} title="State Inspector" onClick={() => setShowInspector(!showInspector)}><Database size={18} /></div>
+        <div className={`nav-item ${showHistory ? 'active' : ''}`} title="History" onClick={() => { setShowHistory(!showHistory); setShowInspector(false); }}><History size={18} /></div>
+        <div className={`nav-item ${showInspector ? 'active' : ''}`} title="State Inspector" onClick={() => { setShowInspector(!showInspector); setShowHistory(false); }}><Database size={18} /></div>
         <div className="spacer" />
         <div className="midi-status-circle" title={midiStatus} style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#00ff00', marginBottom: '20px' }} />
       </div>
@@ -954,7 +980,53 @@ const App: React.FC = () => {
               />
             </div>
             <div className="llm-section">
-              {showInspector ? (
+              {showHistory ? (
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#1e1e1e', borderLeft: '1px solid #333' }}>
+                  <div style={{ padding: '12px', borderBottom: '1px solid #333', fontWeight: 'bold', fontSize: '14px', color: '#aaa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <History size={16} /> VERSION HISTORY
+                    </div>
+                    <button 
+                      onClick={() => saveSnapshot("Manual Snapshot")}
+                      style={{ background: '#333', border: '1px solid #444', color: '#ffcc00', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' }}
+                    >
+                      SNAPSHOT
+                    </button>
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+                    {codeHistory.length === 0 && (
+                      <div style={{ padding: '20px', color: '#666', textAlign: 'center', fontSize: '12px' }}>No snapshots yet.</div>
+                    )}
+                    {codeHistory.map((entry, idx) => (
+                      <div 
+                        key={idx} 
+                        style={{ 
+                          padding: '10px', 
+                          borderBottom: '1px solid #333', 
+                          cursor: 'pointer',
+                          background: code === entry.code ? '#2d2d2d' : 'transparent',
+                          borderRadius: '4px',
+                          marginBottom: '4px',
+                          transition: 'all 0.2s'
+                        }}
+                        onClick={() => {
+                          setOriginalCode(code);
+                          setCode(entry.code);
+                          setDiffMode(true);
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '11px', color: '#ffcc00', fontWeight: 'bold' }}>{entry.msg}</span>
+                          <span style={{ fontSize: '9px', color: '#666' }}>{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#888', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {entry.code.substring(0, 100).replace(/\n/g, ' ')}...
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : showInspector ? (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div style={{ flex: 1, minHeight: 0 }}>
                     <StateInspector 

@@ -99,7 +99,7 @@ const VirtualMIDI: React.FC<VirtualMIDIProps> = ({ onCC, onNoteOn, onNoteOff, cc
           return (
             <Knob 
               key={cc} 
-              label={ccLabels[cc]} 
+              label={`[${cc}] ${ccLabels[cc]}`} 
               value={ccValues[cc] || 64} 
               min={0} 
               max={127} 
