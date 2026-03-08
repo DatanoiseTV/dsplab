@@ -299,6 +299,16 @@ const LLMPane: React.FC<LLMPaneProps> = ({
         }
       },
       {
+        name: "list_functions",
+        description: "Parses the current code and returns a list of all defined function signatures (name, parameters, return type).",
+        parameters: { type: "OBJECT", properties: {} }
+      },
+      {
+        name: "get_vult_reference",
+        description: "Returns a concise technical reference guide for the Vult language (types, syntax, operators, and built-in functions).",
+        parameters: { type: "OBJECT", properties: {} }
+      },
+      {
         name: "write_plan",
         description: "Documents your multi-step plan internally before execution. Use this to break down complex DSP tasks.",
         parameters: {
@@ -564,6 +574,8 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             'ask_user': 'Requesting guidance',
             'write_plan': 'Documenting internal plan',
             'store_snapshot': 'Saving version snapshot',
+            'list_functions': 'Analyzing function signatures',
+            'get_vult_reference': 'Consulting language guide',
             'tell': 'Communicating'
           };
 
@@ -671,6 +683,30 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             } else if (name === 'user_message' || name === 'tell') {
               addDisplayMsg('assistant', fc.args.message);
               result = { success: true };
+            } else if (name === 'list_functions') {
+              addDisplayMsg('system', `🛠️ Analyzing source code for function signatures`);
+              const regex = /fun\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*(?::\s*([a-zA-Z_]\w*))?/g;
+              const functions = [];
+              let match;
+              while ((match = regex.exec(codeRef.current)) !== null) {
+                functions.push({
+                  name: match[1],
+                  params: match[2].trim(),
+                  returns: match[3] || 'void'
+                });
+              }
+              result = { functions: functions.length > 0 ? functions : "No functions found." };
+            } else if (name === 'get_vult_reference') {
+              addDisplayMsg('system', `🛠️ Consulting Vult technical reference`);
+              result = {
+                reference: {
+                  types: "real (float), int (integer), bool (boolean), array(type, size)",
+                  keywords: "fun (function), mem (persistent state), val (local constant), if/else, and (parallel definitions), return",
+                  operators: "Standard arithmetic (+, -, *, /, %), Comparison (==, !=, <, >, <=, >=), Logic (&&, ||, !)",
+                  built_ins: "abs(x), exp(x), log(x), sin(x), cos(x), tan(x), tanh(x), sqrt(x), pow(x,y), floor(x), clip(x, low, high), real(int), int(real)",
+                  entry_point: "fun process(input: real, ...) : real"
+                }
+              };
             } else if (name === 'write_plan') {
               addDisplayMsg('system', `📝 Documenting internal development plan`);
               result = { success: true };
