@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Keyboard, MousePointer2, ChevronLeft, ChevronRight, Volume2, Volume1 } from 'lucide-react';
 import { Knob } from './Knob';
-// @ts-ignore
-import { Piano, KeyboardShortcuts, MidiNumbers } from 'react-piano';
+import { Piano, KeyboardShortcuts } from 'react-piano';
 
 interface VirtualMIDIProps {
   onCC: (cc: number, value: number) => void;
