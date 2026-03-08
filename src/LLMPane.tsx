@@ -993,12 +993,33 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             } else if (name === 'get_vult_reference') {
               addDisplayMsg('system', `[RESEARCH] Consulting Vult technical reference`);
               result = {
-                reference: {
-                  types: "real (float), int (integer), bool (boolean), array(type, size)",
-                  keywords: "fun (function), mem (persistent state), val (local constant), if/else, and (parallel definitions), return",
-                  operators: "Standard arithmetic (+, -, *, /, %), Comparison (==, !=, <, >, <=, >=), Logic (&&, ||, !)",
-                  built_ins: "abs(x), exp(x), log(x), sin(x), cos(x), tan(x), tanh(x), sqrt(x), pow(x,y), floor(x), clip(x, low, high), real(int), int(real)",
-                  entry_point: "fun process(input: real, ...) : real"
+                vult_syntax_guide: {
+                  types: "real, int, bool, array(type, size)",
+                  declarations: {
+                    mem: "Persistent state: 'mem x = 0.0;' or 'mem x: real;'",
+                    val: "Local immutable: 'val x = 1.0;'",
+                    fun: "Function: 'fun name(a: real) : real { return a; }'",
+                    and: "Parallel defs: 'and noteOn(...) { ... }'",
+                    external: "External: 'external abs(x: real) : real @[built-in]'"
+                  },
+                  logic: "if (cond) { ... } else { ... } (Parens required, braces preferred)",
+                  operators: {
+                    arithmetic: "+, -, *, /, %",
+                    comparison: "==, !=, <, >, <=, >= (C-style)",
+                    logical: "&&, ||, ! (C-style mandatory)"
+                  },
+                  arrays: {
+                    init: "mem buffer: array(real, 1024);",
+                    get: "val x = get(buffer, index);",
+                    set: "set(buffer, index, value);",
+                    wrap: "wrap_array(a)"
+                  },
+                  math_builtins: "abs, exp, log, log10, sin, cos, tan, tanh, sqrt, pow, floor, ceil, clip(x, min, max)",
+                  casting: "real(int_val), int(real_val)",
+                  meta: {
+                    tables: "fun f(x) : real @[table(size=128, min=0.0, max=1.0)] { ... }",
+                    not_defined: "Do not use 'and', 'or', 'not' as keywords for logic."
+                  }
                 }
               };
             } else if (name === 'write_plan') {
