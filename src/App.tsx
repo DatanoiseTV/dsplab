@@ -704,18 +704,24 @@ const App: React.FC = () => {
 
   const handleRejectDiff = () => { setCode(originalCode); setDiffMode(false); setOriginalCode(''); };
 
-  // Resizing logic
+  // Improved Resizing logic
   const startResizing = (setter: React.Dispatch<React.SetStateAction<number>>, min: number, max: number) => (e: React.MouseEvent) => {
     e.preventDefault();
-    const startY = e.clientY;
+    let lastY = e.clientY;
+    
     const handleMove = (moveEvent: MouseEvent) => {
-      const delta = startY - moveEvent.clientY;
+      const delta = lastY - moveEvent.clientY;
+      lastY = moveEvent.clientY; // Update anchor point to current position
       setter(prev => Math.max(min, Math.min(max, prev + delta)));
     };
+    
     const handleUp = () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      document.body.style.cursor = 'default';
     };
+    
+    document.body.style.cursor = 'ns-resize';
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
   };
