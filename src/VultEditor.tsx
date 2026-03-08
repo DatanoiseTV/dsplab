@@ -9,27 +9,45 @@ interface VultEditorProps {
   getLiveState: () => Record<string, any>;
 }
 
+interface HoverData {
+  word: string;
+  x: number;
+  y: number;
+  value: any;
+}
+
 const VultEditor: React.FC<VultEditorProps> = ({ code, onChange, markers = [], getLiveState }) => {
   const lastCodeRef = useRef(code);
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<any>(null);
   const [history, setHistory] = useState<Record<string, number[]>>({});
+  const [hoverData, setHoverData] = useState<HoverData | null>(null);
 
-  // History buffer for sparklines
+  // High-frequency history buffer for sparklines and hover updates
   useEffect(() => {
     const interval = setInterval(() => {
       const state = getLiveState();
+      
+      // Update history
       setHistory(prev => {
         const next = { ...prev };
         for (const key in state) {
           if (typeof state[key] === 'number') {
             if (!next[key]) next[key] = [];
-            next[key] = [...next[key].slice(-19), state[key]];
+            next[key] = [...next[key].slice(-39), state[key]];
           }
         }
         return next;
       });
-    }, 100);
+
+      // Update hover data if active
+      setHoverData(current => {
+        if (!current) return null;
+        const newValue = state[current.word];
+        if (newValue === undefined) return null;
+        return { ...current, value: newValue };
+      });
+    }, 50); // 20fps updates
     return () => clearInterval(interval);
   }, [getLiveState]);
 
@@ -57,42 +75,27 @@ const VultEditor: React.FC<VultEditorProps> = ({ code, onChange, markers = [], g
       },
     });
 
-    // LIVE HOVER PROVIDER
-    monaco.languages.registerHoverProvider('vult', {
-      provideHover: (model: any, position: any) => {
-        const word = model.getWordAtPosition(position);
-        if (!word) return null;
-
-        const state = getLiveState();
-        const value = state[word.word];
-        const valHistory = history[word.word];
-
-        if (value !== undefined) {
-          const isNum = typeof value === 'number';
-          const displayVal = isNum ? value.toFixed(4) : value.toString();
-          
-          // Simple SVG sparkline if history exists
-          let sparkline = '';
-          if (isNum && valHistory && valHistory.length > 1) {
-            const min = Math.min(...valHistory);
-            const max = Math.max(...valHistory);
-            const range = (max - min) || 1;
-            const pts = valHistory.map((v, i) => `${i * 5},${20 - ((v - min) / range) * 20}`).join(' ');
-            sparkline = `\n\n![sparkline](data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20"><polyline points="${pts}" fill="none" stroke="#ffcc00" stroke-width="1"/></svg>`)})`;
+    // Handle mouse movement for live hover
+    editor.onMouseMove((e: any) => {
+      if (e.target && e.target.range) {
+        const word = editor.getModel().getWordAtPosition(e.target.range.getStartPosition());
+        if (word) {
+          const state = getLiveState();
+          if (state[word.word] !== undefined) {
+            setHoverData({
+              word: word.word,
+              x: e.event.posx + 15,
+              y: e.event.posy + 15,
+              value: state[word.word]
+            });
+            return;
           }
-
-          return {
-            range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
-            contents: [
-              { value: `**Live Value:** ` },
-              { value: `\`\`\`vult\n${displayVal}\n\`\`\` ` },
-              { value: sparkline }
-            ]
-          };
         }
-        return null;
       }
+      setHoverData(null);
     });
+
+    editor.onMouseLeave(() => setHoverData(null));
   };
 
   const handleOnChange = (value: string | undefined) => {
@@ -102,8 +105,24 @@ const VultEditor: React.FC<VultEditorProps> = ({ code, onChange, markers = [], g
     }
   };
 
+  // Render mini Sparkline SVG
+  const renderSparkline = (word: string) => {
+    const data = history[word];
+    if (!data || data.length < 2) return null;
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const range = (max - min) || 1;
+    const pts = data.map((v, i) => `${i * 3},${30 - ((v - min) / range) * 30}`).join(' ');
+    
+    return (
+      <svg width="120" height="35" style={{ marginTop: '8px', borderTop: '1px solid #444', paddingTop: '4px' }}>
+        <polyline points={pts} fill="none" stroke="#ffcc00" strokeWidth="1.5" />
+      </svg>
+    );
+  };
+
   return (
-    <div style={{ height: '100%', width: '100%' }}>
+    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
       <Editor
         height="100%"
         defaultLanguage="vult"
@@ -119,9 +138,33 @@ const VultEditor: React.FC<VultEditorProps> = ({ code, onChange, markers = [], g
           lineNumbers: 'on',
           scrollBeyondLastLine: false,
           glyphMargin: true,
-          hover: { delay: 100, enabled: true }
+          hover: { enabled: false } // Disable native static hover
         }}
       />
+
+      {/* LIVE FLOATING HOVER */}
+      {hoverData && (
+        <div style={{
+          position: 'fixed',
+          left: hoverData.x,
+          top: hoverData.y,
+          background: '#252526',
+          border: '1px solid #454545',
+          borderRadius: '4px',
+          padding: '8px 12px',
+          zIndex: 10000,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          pointerEvents: 'none',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          <div style={{ fontSize: '10px', color: '#888', fontWeight: 'bold', marginBottom: '2px' }}>LIVE STATE: {hoverData.word}</div>
+          <div style={{ fontSize: '14px', color: '#ffcc00', fontFamily: 'monospace' }}>
+            {typeof hoverData.value === 'number' ? hoverData.value.toFixed(6) : String(hoverData.value)}
+          </div>
+          {typeof hoverData.value === 'number' && renderSparkline(hoverData.word)}
+        </div>
+      )}
     </div>
   );
 };

@@ -34,27 +34,27 @@ const StateInspector: React.FC<StateInspectorProps> = ({ getLiveState }) => {
         {filter && <X size={14} color="#666" style={{ cursor: 'pointer' }} onClick={() => setFilter('')} />}
       </div>
       
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'Fira Code', monospace" }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid #333' }}>
-              <th style={{ fontSize: '10px', color: '#666', padding: '4px' }}>VARIABLE</th>
-              <th style={{ fontSize: '10px', color: '#666', padding: '4px', textAlign: 'right' }}>VALUE</th>
+              <th style={{ fontSize: '9px', color: '#666', padding: '4px' }}>VARIABLE</th>
+              <th style={{ fontSize: '9px', color: '#666', padding: '4px', textAlign: 'right' }}>VALUE</th>
             </tr>
           </thead>
           <tbody>
             {filteredKeys.map(key => (
               <tr key={key} style={{ borderBottom: '1px solid #252525' }}>
-                <td style={{ fontSize: '11px', color: '#aaa', padding: '6px 4px', fontFamily: 'monospace' }}>{key}</td>
-                <td style={{ fontSize: '11px', color: '#ffcc00', padding: '6px 4px', textAlign: 'right', fontFamily: 'monospace' }}>
-                  {typeof state[key] === 'number' ? state[key].toFixed(4) : String(state[key])}
+                <td style={{ fontSize: '9px', color: '#aaa', padding: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{key}</td>
+                <td style={{ fontSize: '9px', color: '#ffcc00', padding: '4px', textAlign: 'right' }}>
+                  {typeof state[key] === 'number' ? state[key].toFixed(5) : String(state[key])}
                 </td>
               </tr>
             ))}
             {filteredKeys.length === 0 && (
               <tr>
-                <td colSpan={2} style={{ padding: '20px', textAlign: 'center', color: '#444', fontSize: '11px' }}>
-                  No active memory cells found.
+                <td colSpan={2} style={{ padding: '20px', textAlign: 'center', color: '#444', fontSize: '10px' }}>
+                  No active memory cells.
                 </td>
               </tr>
             )}
