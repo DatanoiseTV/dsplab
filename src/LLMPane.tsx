@@ -1275,7 +1275,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
   const handleFeelCurious = async () => {
     if (isLoading || isInspirationLoading) return;
     setIsInspirationLoading(true);
-    addDisplayMsg('system', `[INSPIRATION] Consulting the DSP Architect for unique ideas...`);
+    const msgId = addDisplayMsg('system', `[INSPIRATION] Consulting the DSP Architect for unique ideas...`, undefined, true);
     
     const inspirationPrompt = `You are a visionary DSP Architect. Come up with ONE highly creative, unique, and technically functional synthesizer or audio effect idea that can be implemented in Vult. 
     Focus on interesting modulation, non-linearities, or physical modeling. 
@@ -1310,6 +1310,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
         idea = data.choices?.[0]?.message?.content || "A unique grain-shuffler.";
       }
 
+      finalizeStreamingMsg(msgId);
       setIsInspirationLoading(false);
       addDisplayMsg('assistant', `💡 [IDEA] ${idea}`);
       
@@ -1319,6 +1320,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
       processAgentLoop([...messages, newUserMsg]);
 
     } catch (err: any) {
+      finalizeStreamingMsg(msgId);
       addDisplayMsg('system', `[ERROR] Failed to get inspiration: ${err.message}`);
       setIsInspirationLoading(false);
     }

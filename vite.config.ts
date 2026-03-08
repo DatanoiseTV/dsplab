@@ -61,7 +61,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      'react-piano': path.resolve(__dirname, 'node_modules/react-piano/dist/react-piano.esm.js')
+      'react-piano': './node_modules/react-piano/dist/react-piano.esm.js'
     }
   }
 })
