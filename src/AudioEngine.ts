@@ -211,6 +211,23 @@ export class AudioEngine {
     return this.spectrumBuffer;
   }
 
+  public getPeakFrequencies(count: number = 3) {
+    if (!this.analyser || !this.audioContext) return [];
+    this.analyser.getByteFrequencyData(this.spectrumBuffer as any);
+    
+    const bins = Array.from(this.spectrumBuffer).map((energy, index) => ({
+      energy,
+      frequency: Math.round(index * this.audioContext!.sampleRate / this.analyser!.fftSize)
+    }));
+
+    // Sort by energy descending and return top N unique frequencies
+    return bins
+      .sort((a, b) => b.energy - a.energy)
+      .slice(0, count * 2) // Take a few more to filter out adjacent bins
+      .filter((v, i, a) => i === 0 || Math.abs(v.frequency - a[i-1].frequency) > 50) // Filter close frequencies
+      .slice(0, count);
+  }
+
   public sendNoteOn(note: number, velocity: number, channel: number = 0) {
     if (this.workletNode) {
       this.workletNode.port.postMessage({ type: 'noteOn', data: { note, velocity, channel } });

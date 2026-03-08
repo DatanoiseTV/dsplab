@@ -399,7 +399,7 @@ LABORATORY WORKFLOW:
 - Edit: Use 'apply_diff' for small surgical fixes or 'edit_lines' for block-level changes. Use 'update_code' only for complete rewrites.
 - History: Use 'store_snapshot' to save a named restore point before making risky or large changes. 
 - Test: Use 'set_knob' or 'send_midi_cc' to manipulate parameters or 'trigger_generator' to test transient response.
-- Verify: Use 'get_live_telemetry' for internal state, 'get_spectrum_data' for frequency analysis, and 'get_audio_metrics' to analyze signal quality. 
+- Verify: Use 'get_live_telemetry' for internal state, 'get_spectrum_data' for frequency analysis, 'get_peak_frequencies' to find dominant pitches, and 'get_audio_metrics' to analyze signal quality. 
 
 AUTONOMOUS EXECUTION:
 - After calling 'get_current_code', you MUST immediately proceed to the 'Edit' phase. Do not end the turn just to say you have the code. 
@@ -1070,6 +1070,7 @@ const App: React.FC = () => {
                   getPresets={() => Object.keys(PRESETS)}
                   getTelemetry={() => audioEngineRef.current.getLiveState()}
                   getSpectrum={() => Array.from(audioEngineRef.current.getSpectrumData())}
+                  getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
                   getAudioMetrics={() => audioEngineRef.current.getAudioMetrics()}
                   systemPrompt={SYSTEM_PROMPT} 
                 />

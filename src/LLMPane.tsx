@@ -13,6 +13,7 @@ interface LLMPaneProps {
   getPresets: () => string[];
   getTelemetry: () => Record<string, any>;
   getSpectrum: () => number[];
+  getPeakFrequencies: (count?: number) => {energy: number, frequency: number}[];
   getAudioMetrics: () => Record<string, number>;
   systemPrompt: string;
 }
@@ -27,7 +28,7 @@ type Message = { role: 'user' | 'model', parts: MessagePart[] };
 
 const LLMPane: React.FC<LLMPaneProps> = ({ 
   currentCode, onUpdateCode, onSetKnob, onTriggerGenerator, 
-  onConfigureInput, onLoadPreset, onSaveSnapshot, onSetProbes, getPresets, getTelemetry, getSpectrum, getAudioMetrics, systemPrompt 
+  onConfigureInput, onLoadPreset, onSaveSnapshot, onSetProbes, getPresets, getTelemetry, getSpectrum, getPeakFrequencies, getAudioMetrics, systemPrompt 
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -261,6 +262,16 @@ const LLMPane: React.FC<LLMPaneProps> = ({
         name: "get_spectrum_data",
         description: "Retrieves a snapshot of the current 1024-band frequency spectrum of the output signal. Use this to verify audio activity or filter performance.",
         parameters: { type: "OBJECT", properties: {} }
+      },
+      {
+        name: "get_peak_frequencies",
+        description: "Analyzes the current spectrum and returns the frequencies (in Hz) with the most energy. Useful for verifying oscillator pitch or resonant peaks.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            count: { type: "NUMBER", description: "Number of peak frequencies to return (default 3)." }
+          }
+        }
       },
       {
         name: "get_audio_metrics",
@@ -603,6 +614,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             'list_presets': 'Browsing library',
             'get_live_telemetry': 'Inspecting memory',
             'get_spectrum_data': 'Analyzing spectrum',
+            'get_peak_frequencies': 'Finding peak frequencies',
             'get_audio_metrics': 'Measuring audio quality',
             'user_message': 'Sending status update',
             'ask_user': 'Requesting guidance',
@@ -743,6 +755,9 @@ const LLMPane: React.FC<LLMPaneProps> = ({
             } else if (name === 'get_spectrum_data') {
               addDisplayMsg('system', `📊 Capturing frequency spectrum snapshot`);
               result = { spectrum: getSpectrum() };
+            } else if (name === 'get_peak_frequencies') {
+              addDisplayMsg('system', `📊 Finding peak frequencies`);
+              result = { peaks: getPeakFrequencies(fc.args.count) };
             } else if (name === 'get_audio_metrics') {
               addDisplayMsg('system', `📈 Measuring output signal quality (RMS/Peak/Headroom)`);
               result = { metrics: getAudioMetrics() };
