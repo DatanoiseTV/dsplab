@@ -90,7 +90,7 @@ const DragNumber: React.FC<{ value: number, onChange: (v: number) => void, min: 
   );
 };
 
-const CCLane: React.FC<{ track: CCTrack, length: number, currentStep: number, onChange: (steps: number[]) => void, onRemove: () => void, ccName: string }> = ({ track, length, currentStep, onChange, onRemove, ccName }) => {
+const CCLane: React.FC<{ track: CCTrack, length: number, onChange: (steps: number[]) => void, onRemove: () => void, ccName: string }> = ({ track, length, onChange, onRemove, ccName }) => {
   const [isDrawing, setIsDrawing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastDrawRef = useRef<{ step: number, val: number } | null>(null);
@@ -184,7 +184,8 @@ const CCLane: React.FC<{ track: CCTrack, length: number, currentStep: number, on
             return (
               <div 
                 key={i} 
-                style={{ width: '28px', flexShrink: 0, height: '40px', background: i === currentStep ? '#1a1f2e' : '#161b22', border: i === currentStep ? '1px solid #7ec8ff' : '1px solid #222', borderRadius: '2px', position: 'relative', opacity: isActive ? 1 : 0.3 }}
+                className={`cc-step seq-step-${i}`}
+                style={{ width: '28px', flexShrink: 0, height: '40px', background: '#161b22', border: '1px solid #222', borderRadius: '2px', position: 'relative', opacity: isActive ? 1 : 0.3 }}
               >
                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: '#ffcc00', borderRadius: '0 0 2px 2px', opacity: 0.15, pointerEvents: 'none' }} />
                 <div style={{ position: 'absolute', top: '-12px', left: 0, width: '100%', textAlign: 'center', fontSize: '8px', color: '#55', opacity: isActive ? 1 : 0 }}>{safeSteps[i * 4] || 0}</div>
@@ -221,7 +222,7 @@ const Sequencer: React.FC<SequencerProps> = ({
   ccTracks, setCCTracks, ccLabels,
   onSequencerStep, updateSequencer 
 }) => {
-  const [currentStep, setCurrentStep] = useState(-1);
+
 
   // Sync state to AudioWorklet
   useEffect(() => {
@@ -232,11 +233,16 @@ const Sequencer: React.FC<SequencerProps> = ({
 
   // Listen for ticks from AudioWorklet
   useEffect(() => {
-    if (onSequencerStep) {
-      return onSequencerStep((step) => {
-        setCurrentStep(step);
-      });
-    }
+    // Instead of syncing via React State, map DOM nodes visually via ID selector.
+    // This solves massive visual re-render latency loops in large track blocks entirely.
+    let lastStep = -1;
+    return onSequencerStep?.((step) => {
+      if (lastStep !== -1) {
+        document.querySelectorAll(`.seq-step-${lastStep}`).forEach(el => el.classList.remove('active-step'));
+      }
+      document.querySelectorAll(`.seq-step-${step}`).forEach(el => el.classList.add('active-step'));
+      lastStep = step;
+    });
   }, [onSequencerStep]);
 
   const updateMelodyStep = (idx: number, patch: Partial<Step>) => {
@@ -404,7 +410,7 @@ const Sequencer: React.FC<SequencerProps> = ({
               const stepOctave = Math.floor(step.note / 12) - 1;
 
               return (
-                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '28px', flexShrink: 0, background: i === currentStep ? 'rgba(126, 200, 255, 0.05)' : 'transparent', borderRadius: '2px', opacity: isActiveStep ? 1 : 0.3, pointerEvents: isActiveStep ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
+                <div key={i} className={`melody-col seq-step-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '28px', flexShrink: 0, background: 'transparent', borderRadius: '2px', opacity: isActiveStep ? 1 : 0.3, pointerEvents: isActiveStep ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
                   {GRID_NOTES.map(noteIdx => {
                     const isMatch = stepNoteIdx === noteIdx;
                     const isActive = isMatch && step.active;
@@ -419,6 +425,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                     return (
                       <div 
                         key={noteIdx}
+                        className={`melody-cell seq-step-${i} ${isActive ? 'is-active-note' : ''}`}
                         onClick={() => {
                           if (isMatch) {
                             updateMelodyStep(i, { active: !step.active });
@@ -428,7 +435,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                         }}
                         style={{ 
                           height: '18px', background: bg, borderRadius: '2px', cursor: 'pointer',
-                          border: isActive ? '1px solid #fff' : i === currentStep ? '1px solid #7ec8ff33' : '1px solid #222'
+                          border: isActive ? '1px solid #fff' : '1px solid #222'
                         }}
                       />
                     )
@@ -442,7 +449,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                      <div onClick={() => updateMelodyStep(i, { accent: !step.accent })} style={{ height: '14px', background: step.accent ? '#ffcc00' : '#222', borderRadius: '2px', cursor: 'pointer', border: '1px solid #111' }} title="Accent" />
                      <div onClick={() => updateMelodyStep(i, { slide: !step.slide })} style={{ height: '14px', background: step.slide ? '#7ec8ff' : '#222', borderRadius: '2px', cursor: 'pointer', border: '1px solid #111' }} title="Slide" />
                      
-                     <div style={{ fontSize: '9px', color: i === currentStep ? '#7ec8ff' : '#555', textAlign: 'center', marginTop: '2px', fontWeight: 'bold' }}>{i + 1}</div>
+                     <div className={`step-number seq-step-${i}`} style={{ textAlign: 'center', marginTop: '2px' }}>{i + 1}</div>
                   </div>
                 </div>
               )
@@ -454,16 +461,16 @@ const Sequencer: React.FC<SequencerProps> = ({
             <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               <div style={{ width: '50px', flexShrink: 0 }} /> {/* Label spacer */}
               {Array.from({length: 32}).map((_, i) => (
-                <div key={i} style={{ width: '28px', flexShrink: 0, fontSize: '9px', fontWeight: 'bold', color: i === currentStep ? '#7ec8ff' : '#555', textAlign: 'center', opacity: i < length ? 1 : 0.3, transition: 'opacity 0.2s' }}>{i + 1}</div>
+                <div key={i} className={`step-number seq-step-${i}`} style={{ width: '28px', flexShrink: 0, textAlign: 'center', opacity: i < length ? 1 : 0.3, transition: 'opacity 0.2s' }}>{i + 1}</div>
               ))}
            </div>
            {drumTracks.map((track, tIdx) => (
              <div key={tIdx} style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '2px 0' }}>
                <div style={{ width: '50px', flexShrink: 0, fontSize: '10px', fontWeight: 'bold', color: '#ffcc00', textAlign: 'right', paddingRight: '10px', boxSizing: 'border-box' }}>{track.name}</div>
                {track.steps.map((st: any, i: number) => (
-                 <div key={i} onClick={() => updateDrumStep(tIdx, i, !st.active)} style={{
+                 <div key={i} className={`drum-cell seq-step-${i}`} onClick={() => updateDrumStep(tIdx, i, !st.active)} style={{
                    width: '28px', flexShrink: 0, height: '24px', background: st.active ? '#ff3366' : (Math.floor(i/4)%2 === 0 ? '#111' : '#161b22'),
-                   borderRadius: '3px', cursor: 'pointer', border: currentStep === i ? '1px solid #7ec8ff' : '1px solid #222',
+                   borderRadius: '3px', cursor: 'pointer', border: '1px solid #222',
                    boxShadow: st.active ? '0 0 6px rgba(255, 51, 102, 0.3)' : 'none', transition: 'all 0.1s', opacity: i < length ? 1 : 0.3, pointerEvents: i < length ? 'auto' : 'none'
                  }} />
                ))}
@@ -479,7 +486,6 @@ const Sequencer: React.FC<SequencerProps> = ({
              key={`cc-${track.cc}`} 
              track={track} 
              length={length} 
-             currentStep={currentStep} 
              onChange={st => setCCTracks(prev => prev.map((t, tidx) => tidx === i ? { ...t, steps: st } : t))}
              onRemove={() => setCCTracks(prev => prev.filter((_, tidx) => tidx !== i))}
              ccName={`CC ${track.cc} (${ccLabels[track.cc] || 'Unknown'})`}

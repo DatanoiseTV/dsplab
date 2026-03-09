@@ -509,6 +509,9 @@
   color: var(--text-secondary);
   font-weight: bold;
 }
+.active-step.step-number {
+  color: #7ec8ff !important;
+}
 
 .bpm-input {
   width: 50px;
@@ -775,4 +778,19 @@
 .settings-btn:hover {
   border-color: var(--accent-primary);
   color: var(--accent-primary);
+}
+
+/* SEQUENCER TICK DOM PERFORMANCE OPTIMIZATIONS */
+.cc-step.active-step {
+  background: #1a1f2e !important;
+  border: 1px solid #7ec8ff !important;
+}
+.melody-col.active-step {
+  background: rgba(126, 200, 255, 0.05) !important;
+}
+.melody-col.active-step .melody-cell:not(.is-active-note) {
+  border: 1px solid #7ec8ff33 !important;
+}
+.drum-cell.active-step {
+  border: 1px solid #7ec8ff !important;
 }

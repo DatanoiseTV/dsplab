@@ -425,8 +425,16 @@ class VultProcessor extends AudioWorkletProcessor {
           let outL = 0;
           let outR = 0;
           if (typeof result === 'object' && result !== null) {
-            outL = result.t0 || 0;
-            outR = result.t1 !== undefined ? result.t1 : outL;
+            if (Array.isArray(result)) {
+              outL = result[0] || 0;
+              outR = result.length > 1 ? result[1] : outL;
+            } else if ('_0' in result) {
+              outL = result._0 || 0;
+              outR = '_1' in result ? result._1 : outL;
+            } else {
+              outL = result.t0 || 0;
+              outR = result.t1 !== undefined ? result.t1 : outL;
+            }
           } else {
             outL = typeof result === 'number' ? result : 0;
             outR = outL;
