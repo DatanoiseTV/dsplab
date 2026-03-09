@@ -92,31 +92,68 @@ const DragNumber: React.FC<{ value: number, onChange: (v: number) => void, min: 
 
 const CCLane: React.FC<{ track: CCTrack, length: number, currentStep: number, onChange: (steps: number[]) => void, onRemove: () => void, ccName: string }> = ({ track, length, currentStep, onChange, onRemove, ccName }) => {
   const [isDrawing, setIsDrawing] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastDrawRef = useRef<{ step: number, val: number } | null>(null);
 
-  const updateStep = (idx: number, clientY: number, target: HTMLElement) => {
-    const rect = target.getBoundingClientRect();
-    const pct = 1.0 - Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-    const val = Math.floor(pct * 127);
+  const updateFromPointer = (e: React.PointerEvent<HTMLDivElement>, isStart: boolean) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Each step is 32px (28px + 4px gap)
+    const stepFloat = Math.max(0, Math.min(length - 1, x / 32));
+    const stepIdx = Math.floor(stepFloat);
+    const pctY = 1.0 - Math.max(0, Math.min(1, y / rect.height));
+    const val = Math.floor(pctY * 127);
+    
     const next = [...track.steps];
-    next[idx] = val;
+
+    if (isStart || !lastDrawRef.current) {
+      next[stepIdx] = val;
+    } else {
+      const last = lastDrawRef.current;
+      const startStep = Math.min(last.step, stepIdx);
+      const endStep = Math.max(last.step, stepIdx);
+      const startVal = last.step === startStep ? last.val : val;
+      const endVal = last.step === startStep ? val : last.val;
+      
+      for (let i = startStep; i <= endStep; i++) {
+        if (endStep === startStep) {
+          next[i] = startVal;
+        } else {
+          const t = (i - startStep) / (endStep - startStep);
+          next[i] = Math.floor(startVal + t * (endVal - startVal));
+        }
+      }
+    }
+    
+    lastDrawRef.current = { step: stepIdx, val };
     onChange(next);
   };
 
-  const handlePointerDown = (i: number, e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     setIsDrawing(true);
-    updateStep(i, e.clientY, e.currentTarget);
+    updateFromPointer(e, true);
   };
 
-  const handlePointerMove = (i: number, e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDrawing) return;
-    updateStep(i, e.clientY, e.currentTarget);
+    updateFromPointer(e, false);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.releasePointerCapture(e.pointerId);
     setIsDrawing(false);
+    lastDrawRef.current = null;
   };
+
+  const svgD = track.steps.slice(0, length).reduce((acc, val, i) => {
+    const x = i * 32 + 14;
+    const y = 40 - (val / 127) * 40;
+    return acc + (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`);
+  }, "");
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: '#111', padding: '6px 8px', borderRadius: '4px', border: '1px solid #333' }}>
@@ -124,24 +161,44 @@ const CCLane: React.FC<{ track: CCTrack, length: number, currentStep: number, on
         <span style={{ fontSize: '10px', color: '#ffcc00', fontWeight: 'bold' }}>{ccName}</span>
         <button onClick={onRemove} style={{ background: 'transparent', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '12px' }}>&times;</button>
       </div>
-      <div style={{ display: 'flex', gap: '4px' }}>
-        <div style={{ width: '50px' }} /> {/* Label spacer sync with drum grid */}
-        {track.steps.map((val, i) => {
-          const isActive = i < length;
-          const pct = Math.max(0, Math.min(100, (val / 127) * 100));
-          return (
-            <div 
-              key={i} 
-              onPointerDown={(e) => isActive && handlePointerDown(i, e)}
-              onPointerMove={(e) => isActive && handlePointerMove(i, e)}
-              onPointerUp={handlePointerUp}
-              style={{ width: '28px', height: '40px', background: i === currentStep ? '#1a1f2e' : '#161b22', border: i === currentStep ? '1px solid #7ec8ff' : '1px solid #222', borderRadius: '2px', position: 'relative', cursor: isActive ? 'ns-resize' : 'default', touchAction: 'none', opacity: isActive ? 1 : 0.3 }}
-            >
-               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: '#ffcc00', borderRadius: '0 0 2px 2px', opacity: 0.8, pointerEvents: 'none' }} />
-               <div style={{ position: 'absolute', top: '-12px', left: 0, width: '100%', textAlign: 'center', fontSize: '8px', color: '#555' }}>{val}</div>
-            </div>
-          )
-        })}
+      <div style={{ display: 'flex', gap: '4px', position: 'relative' }}>
+        <div style={{ width: '50px', flexShrink: 0 }} /> {/* Label spacer sync with drum grid */}
+        
+        {/* Visual Background Grid */}
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {Array.from({length: 32}).map((_, i) => {
+            const isActive = i < length;
+            // Ghost bar visual indication behind the curve
+            const pct = isActive ? Math.max(0, Math.min(100, (track.steps[i] / 127) * 100)) : 0;
+            return (
+              <div 
+                key={i} 
+                style={{ width: '28px', height: '40px', background: i === currentStep ? '#1a1f2e' : '#161b22', border: i === currentStep ? '1px solid #7ec8ff' : '1px solid #222', borderRadius: '2px', position: 'relative', opacity: isActive ? 1 : 0.3 }}
+              >
+                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: '#ffcc00', borderRadius: '0 0 2px 2px', opacity: 0.15, pointerEvents: 'none' }} />
+                <div style={{ position: 'absolute', top: '-12px', left: 0, width: '100%', textAlign: 'center', fontSize: '8px', color: '#55', opacity: isActive ? 1 : 0 }}>{track.steps[i]}</div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* SVG overlay for drawing the curve */}
+        <svg style={{ position: 'absolute', left: '54px', top: 0, width: `${32 * 32}px`, height: '40px', pointerEvents: 'none' }}>
+           <path d={svgD} fill="none" stroke="#ffcc00" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+           {track.steps.slice(0, length).map((val, i) => (
+             <circle key={i} cx={i * 32 + 14} cy={40 - (val / 127) * 40} r="3" fill="#ffcc00" opacity={0.8} />
+           ))}
+        </svg>
+
+        {/* Capture overlay for smooth paint interactions */}
+        <div 
+           ref={containerRef}
+           onPointerDown={handlePointerDown}
+           onPointerMove={handlePointerMove}
+           onPointerUp={handlePointerUp}
+           onPointerLeave={handlePointerUp}
+           style={{ position: 'absolute', left: '54px', top: 0, width: `${length * 32}px`, height: '40px', cursor: 'crosshair', touchAction: 'none' }}
+        />
       </div>
     </div>
   );
@@ -225,7 +282,7 @@ const Sequencer: React.FC<SequencerProps> = ({
       const next = drumTracks.map(t => ({...t, steps: t.steps.map((st:any) => ({...st, active: false, accent: false, slide: false}))}));
       setDrumTracks(next);
     } else {
-      setSteps(steps.map(s => ({ ...s, active: false, accent: false, slide: false })));
+      setSteps(steps.map(s => ({ ...s, active: false, accent: false, slide: false, note: 60 }))); // Reset pitch to middle C
     }
   }
 
