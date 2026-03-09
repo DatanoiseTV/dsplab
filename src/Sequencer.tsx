@@ -263,12 +263,13 @@ const Sequencer: React.FC<SequencerProps> = ({
             </div>
 
             {/* Stepper Columns */}
-            {steps.slice(0, length).map((step, i) => {
+            {steps.map((step, i) => {
+              const isActiveStep = i < length;
               const stepNoteIdx = step.note % 12;
               const stepOctave = Math.floor(step.note / 12) - 1;
 
               return (
-                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '28px', flexShrink: 0, paddingLeft: '2px', paddingRight: '2px', background: i === currentStep ? 'rgba(126, 200, 255, 0.05)' : 'transparent', borderRadius: '2px' }}>
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '28px', flexShrink: 0, paddingLeft: '2px', paddingRight: '2px', background: i === currentStep ? 'rgba(126, 200, 255, 0.05)' : 'transparent', borderRadius: '2px', opacity: isActiveStep ? 1 : 0.3, pointerEvents: isActiveStep ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
                   {GRID_NOTES.map(noteIdx => {
                     const isMatch = stepNoteIdx === noteIdx;
                     const isActive = isMatch && step.active;
@@ -315,20 +316,20 @@ const Sequencer: React.FC<SequencerProps> = ({
         </div>
       ) : (
         <div className="drum-grid" style={{ display: 'flex', flexDirection: 'column', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginTop: '4px' }}>
-           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               <div style={{ width: '50px' }} /> {/* Label spacer */}
-              {Array.from({length: length}).map((_, i) => (
-                <div key={i} style={{ width: '28px', fontSize: '9px', fontWeight: 'bold', color: i === currentStep ? '#7ec8ff' : '#555', textAlign: 'center' }}>{i + 1}</div>
+              {Array.from({length: 32}).map((_, i) => (
+                <div key={i} style={{ width: '28px', fontSize: '9px', fontWeight: 'bold', color: i === currentStep ? '#7ec8ff' : '#555', textAlign: 'center', opacity: i < length ? 1 : 0.3, transition: 'opacity 0.2s' }}>{i + 1}</div>
               ))}
            </div>
            {drumTracks.map((track, tIdx) => (
              <div key={tIdx} style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '2px 0' }}>
                <div style={{ width: '40px', fontSize: '10px', fontWeight: 'bold', color: '#ffcc00', textAlign: 'right', paddingRight: '10px' }}>{track.name}</div>
-               {track.steps.slice(0, length).map((st: any, i: number) => (
+               {track.steps.map((st: any, i: number) => (
                  <div key={i} onClick={() => updateDrumStep(tIdx, i, !st.active)} style={{
                    width: '28px', height: '24px', background: st.active ? '#ff3366' : (Math.floor(i/4)%2 === 0 ? '#111' : '#161b22'),
                    borderRadius: '3px', cursor: 'pointer', border: currentStep === i ? '1px solid #7ec8ff' : '1px solid #222',
-                   boxShadow: st.active ? '0 0 6px rgba(255, 51, 102, 0.3)' : 'none', transition: 'all 0.1s'
+                   boxShadow: st.active ? '0 0 6px rgba(255, 51, 102, 0.3)' : 'none', transition: 'all 0.1s', opacity: i < length ? 1 : 0.3, pointerEvents: i < length ? 'auto' : 'none'
                  }} />
                ))}
              </div>
