@@ -1,6 +1,6 @@
-# VultLab
+# DSPLab
 
-A professional development environment and diagnostic laboratory for DSP engineering.
+A development environment and diagnostic laboratory for DSP engineering.
 
 <img width="3248" height="1956" alt="image" src="https://github.com/user-attachments/assets/9765091d-cac8-4ad8-81dd-fb08855cd5a0" />
 
