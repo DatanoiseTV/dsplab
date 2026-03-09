@@ -1348,7 +1348,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
     if (messages.length === 0 && !isLoading && !isInspirationLoading) {
       const savedMsgs = localStorage.getItem('llm_messages');
       if (!savedMsgs || JSON.parse(savedMsgs).length === 0) {
-        addDisplayMsg('assistant', "Welcome to VultLab. I am your Senior DSP Assistant. Would you like to start with a professional preset or a minimal template?", undefined, false, [
+        addDisplayMsg('assistant', "Welcome to DSPLab. I am your Senior DSP Assistant. Would you like to start with a professional preset or a minimal template?", undefined, false, [
           { label: "Load CS-80 (vs80)", value: "load_preset:vs80" },
           { label: "Biquad Filter", value: "load_preset:Biquad Filter" },
           { label: "Minimal Template", value: "load_preset:Minimal" }
@@ -1458,7 +1458,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Activity size={14} color={isLoading ? "#ff0000" : "#666"} className={isLoading ? "animate-spin" : ""} />
-            <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px' }}>Vult Agent</span>
+            <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px' }}>DSP Agent</span>
           </div>
           <div style={{ fontSize: '10px', color: '#00ff00', marginTop: '2px', fontWeight: 'bold', fontFamily: 'monospace', textShadow: '0 0 5px rgba(0,255,0,0.3)' }}>
             TOKENS: {tokens.total.toLocaleString()} {currentTurn > 0 && `| TURN: ${currentTurn}/${provider === 'gemini' ? '50' : '30'} (${formatTime(elapsedTurn)})`} | SESSION: {formatTime(elapsedSession)}
@@ -1571,7 +1571,7 @@ const LLMPane: React.FC<LLMPaneProps> = ({
           value={input} 
           onChange={(e) => setInput(e.target.value)} 
           onKeyDown={(e) => e.key === 'Enter' && (isLoading ? handleStop() : handleSend())} 
-          placeholder={askUserResolverRef.current ? "Type your answer..." : "Ask the Vult Agent..."} 
+          placeholder={askUserResolverRef.current ? "Type your answer..." : "Ask the DSP Agent..."} 
           style={{ 
             flex: 1, 
             background: '#252526', 

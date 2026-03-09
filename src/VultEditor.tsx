@@ -1,6 +1,16 @@
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import type { Monaco } from '@monaco-editor/react';
+
+export interface VultEditorHandle {
+  /**
+   * Insert text at the current cursor position in the editor.
+   * Inserts with a leading newline if the cursor is not at column 1,
+   * and leaves the cursor after the inserted block.
+   * The editor takes focus so the user can keep typing.
+   */
+  insertAtCursor: (text: string) => void;
+}
 
 interface VultEditorProps {
   code: string;
@@ -18,9 +28,9 @@ interface HoverData {
   value: any;
 }
 
-const VultEditor: React.FC<VultEditorProps> = ({ 
-  code, onChange, markers = [], onStateUpdate, diffMode = false, originalCode = "" 
-}) => {
+const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
+  code, onChange, markers = [], onStateUpdate, diffMode = false, originalCode = ""
+}, ref) => {
   const lastCodeRef = useRef(code);
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<any>(null);
@@ -28,12 +38,47 @@ const VultEditor: React.FC<VultEditorProps> = ({
   const [hoverData, setHoverData] = useState<HoverData | null>(null);
   const currentStateRef = useRef<Record<string, any>>({});
 
+  useImperativeHandle(ref, () => ({
+    insertAtCursor(text: string) {
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      if (!editor || !monaco) return;
+
+      const model = editor.getModel();
+      if (!model) return;
+
+      const position = editor.getPosition();
+      const col = position?.column ?? 1;
+      const line = position?.lineNumber ?? 1;
+
+      // Determine whether we need a leading blank line separator
+      const lineContent = model.getLineContent(line);
+      const needsLeadingNewline = lineContent.trim().length > 0;
+
+      const insertText = (needsLeadingNewline ? '\n\n' : '') + text;
+
+      editor.executeEdits('insert-module', [
+        {
+          range: new monaco.Range(line, col, line, col),
+          text: insertText,
+          forceMoveMarkers: true,
+        },
+      ]);
+
+      // Place cursor at end of inserted block and reveal it
+      const newModel = editor.getModel();
+      const lineCount = newModel.getLineCount();
+      editor.setPosition({ lineNumber: lineCount, column: 1 });
+      editor.revealPositionInCenter({ lineNumber: lineCount, column: 1 });
+      editor.focus();
+    },
+  }));
+
   // Unified 15Hz subscription for sparklines and hover
   useEffect(() => {
     const unsubscribe = onStateUpdate((state) => {
       currentStateRef.current = state;
 
-      // Update history for sparklines
       setHistory(prev => {
         const next = { ...prev };
         for (const key in state) {
@@ -45,7 +90,6 @@ const VultEditor: React.FC<VultEditorProps> = ({
         return next;
       });
 
-      // Update hover data value if currently hovering
       setHoverData(current => {
         if (!current) return null;
         const newValue = state[current.word];
@@ -64,7 +108,7 @@ const VultEditor: React.FC<VultEditorProps> = ({
 
   const setupMonaco = (monaco: Monaco) => {
     if (monaco.languages.getLanguages().some((l: any) => l.id === 'vult')) return;
-    
+
     monaco.languages.register({ id: 'vult' });
     monaco.languages.setMonarchTokensProvider('vult', {
       tokenizer: {
@@ -85,9 +129,8 @@ const VultEditor: React.FC<VultEditorProps> = ({
     editorRef.current = editor;
     setupMonaco(monaco);
 
-    // Handle mouse movement for live hover
     editor.onMouseMove((e: any) => {
-      if (diffMode) return; // Disable hover in diff mode for now
+      if (diffMode) return;
       if (e.target && e.target.range) {
         const word = editor.getModel().getWordAtPosition(e.target.range.getStartPosition());
         if (word) {
@@ -112,7 +155,6 @@ const VultEditor: React.FC<VultEditorProps> = ({
   const handleDiffMount = (editor: any, monaco: Monaco) => {
     monacoRef.current = monaco;
     setupMonaco(monaco);
-    // Automatically scroll to the first difference
     setTimeout(() => {
       if (editor.revealFirstDiff) editor.revealFirstDiff();
     }, 100);
@@ -125,7 +167,6 @@ const VultEditor: React.FC<VultEditorProps> = ({
     }
   };
 
-  // Render mini Sparkline SVG
   const renderSparkline = (word: string) => {
     const data = history[word];
     if (!data || data.length < 2) return null;
@@ -133,7 +174,7 @@ const VultEditor: React.FC<VultEditorProps> = ({
     const max = Math.max(...data);
     const range = (max - min) || 1;
     const pts = data.map((v, i) => `${i * 3},${30 - ((v - min) / range) * 30}`).join(' ');
-    
+
     return (
       <svg width="120" height="35" style={{ marginTop: '8px', borderTop: '1px solid #444', paddingTop: '4px' }}>
         <polyline points={pts} fill="none" stroke="#ffcc00" strokeWidth="1.5" />
@@ -205,6 +246,7 @@ const VultEditor: React.FC<VultEditorProps> = ({
       )}
     </div>
   );
-};
+});
 
+VultEditor.displayName = 'VultEditor';
 export default VultEditor;
