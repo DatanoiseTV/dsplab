@@ -24,12 +24,11 @@ const COMPLEXITY_COLORS: Record<string, string> = {
 function ComplexityBadge({ level }: { level?: string }) {
   if (!level) return null;
   return (
-    <span style={{
-      fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.4px',
-      textTransform: 'uppercase', padding: '1px 5px', borderRadius: '3px',
+    <div style={{
+      width: '8px', height: '8px', borderRadius: '50%',
       background: COMPLEXITY_COLORS[level] ?? '#444',
-      color: '#fff', flexShrink: 0,
-    }}>{level}</span>
+      flexShrink: 0,
+    }} title={`Complexity: ${level}`} />
   );
 }
 
@@ -45,12 +44,11 @@ function RoleBadge({ role }: { role?: string }) {
   if (!role) return null;
   const s = ROLE_STYLE[role] ?? { bg: '#333', label: role };
   return (
-    <span style={{
-      fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.5px',
-      textTransform: 'uppercase', padding: '2px 6px', borderRadius: '3px',
-      background: s.bg, color: '#cce4ff', flexShrink: 0,
-      border: `1px solid ${s.bg}cc`,
-    }}>{s.label}</span>
+    <div style={{
+      width: '8px', height: '8px', borderRadius: '50%',
+      background: s.bg, flexShrink: 0,
+      border: `1px solid rgba(255,255,255,0.2)`,
+    }} title={`Role: ${s.label}`} />
   );
 }
 
@@ -65,12 +63,11 @@ const CATEGORY_COLORS: Record<string, string> = {
 function CategoryBadge({ category }: { category?: string }) {
   if (!category) return null;
   return (
-    <span style={{
-      fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.4px',
-      textTransform: 'uppercase', padding: '1px 5px', borderRadius: '3px',
+    <div style={{
+      width: '8px', height: '8px', borderRadius: '50%',
       background: CATEGORY_COLORS[category] ?? '#333',
-      color: '#fff', flexShrink: 0,
-    }}>{category}</span>
+      flexShrink: 0,
+    }} title={`Category: ${category}`} />
   );
 }
 
