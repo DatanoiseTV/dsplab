@@ -92,7 +92,7 @@ const CommunityPresetsModal: React.FC<CommunityPresetsModalProps> = ({ onClose, 
     } else {
       setSelectedPreset(null);
     }
-  }, [filter, activeFilter, activeAuthor, activeTag, communityGroups]);
+  }, [filter, activeFilter, activeAuthor, activeTags, communityGroups]);
 
   useEffect(() => {
     if (selectedPreset) {
