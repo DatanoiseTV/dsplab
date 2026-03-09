@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Square, Timer, Zap, FastForward, Layers } from 'lucide-react';
+import { Play, Square, Timer, Layers, Drum, Music } from 'lucide-react';
 
 export interface Step {
   active: boolean;
@@ -15,20 +15,24 @@ interface SequencerProps {
   setBpm: (bpm: number) => void;
   isPlaying: boolean;
   setIsPlaying: (playing: boolean) => void;
-  onNoteOn: (note: number, velocity: number) => void;
-  onNoteOff: (note: number) => void;
   length: number;
   setLength: (len: number) => void;
   gateLength: number;
   setGateLength: (len: number) => void;
+  mode: 'melody' | 'drum';
+  setMode: (m: 'melody' | 'drum') => void;
+  drumTracks: any[];
+  setDrumTracks: any;
   onSequencerStep?: (callback: (step: number) => void) => () => void;
-  updateSequencer?: (data: { isPlaying: boolean, bpm: number, steps: Step[], length: number, gateLength: number }) => void;
+  updateSequencer?: (data: any) => void;
 }
 
 const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const PENTATONIC_SCALE = [0, 3, 5, 7, 10]; // Minor Pentatonic intervals
 
-const NoteInput: React.FC<{ value: number, onChange: (val: number) => void }> = ({ value, onChange }) => {
+// Melody grid note names (top to bottom)
+const GRID_NOTES = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
+
+const DragNumber: React.FC<{ value: number, onChange: (v: number) => void, min: number, max: number, label?: string }> = ({ value, onChange, min, max, label }) => {
   const [isDragging, setIsDragging] = useState(false);
   const startY = useRef(0);
   const startValue = useRef(0);
@@ -45,7 +49,7 @@ const NoteInput: React.FC<{ value: number, onChange: (val: number) => void }> = 
     if (!isDragging) return;
     const handleMove = (e: MouseEvent) => {
       const delta = Math.floor((startY.current - e.clientY) / 5);
-      const next = Math.max(0, Math.min(127, startValue.current + delta));
+      const next = Math.max(min, Math.min(max, startValue.current + delta));
       if (next !== value) onChange(next);
     };
     const handleUp = () => {
@@ -58,31 +62,29 @@ const NoteInput: React.FC<{ value: number, onChange: (val: number) => void }> = 
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [isDragging, value, onChange]);
-
-  const noteName = NOTES[value % 12];
-  const octave = Math.floor(value / 12) - 1;
+  }, [isDragging, value, onChange, min, max]);
 
   return (
     <div 
       onMouseDown={onMouseDown}
-      className={`note-selector-drag ${isDragging ? 'dragging' : ''}`}
       style={{
-        width: '36px', height: '22px', background: isDragging ? '#1a1f2e' : '#111', border: isDragging ? '1px solid #7ec8ff' : '1px solid #333',
-        borderRadius: '3px', color: isDragging ? '#7ec8ff' : '#00ff00', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'ns-resize',
-        userSelect: 'none', transition: 'all 0.15s', marginTop: '4px'
+        width: '100%', height: '18px', background: isDragging ? '#1a1f2e' : '#111', 
+        border: isDragging ? '1px solid #7ec8ff' : '1px solid #333',
+        borderRadius: '2px', color: isDragging ? '#7ec8ff' : '#aaa', 
+        fontSize: '9px', fontWeight: 'bold', fontFamily: 'monospace',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+        cursor: 'ns-resize', userSelect: 'none', transition: 'all 0.1s'
       }}
-      title="Drag up/down to change pitch"
+      title={`Drag to change ${label || 'value'}`}
     >
-      {noteName}{octave}
+      {value}
     </div>
   );
 };
 
 const Sequencer: React.FC<SequencerProps> = ({ 
   steps, setSteps, bpm, setBpm, isPlaying, setIsPlaying, length, setLength, 
-  gateLength, setGateLength,
+  gateLength, setGateLength, mode, setMode, drumTracks, setDrumTracks,
   onSequencerStep, updateSequencer 
 }) => {
   const [currentStep, setCurrentStep] = useState(-1);
@@ -90,9 +92,9 @@ const Sequencer: React.FC<SequencerProps> = ({
   // Sync state to AudioWorklet
   useEffect(() => {
     if (updateSequencer) {
-      updateSequencer({ isPlaying, bpm, steps, length, gateLength });
+      updateSequencer({ isPlaying, bpm, steps, length, gateLength, mode, tracks: drumTracks });
     }
-  }, [isPlaying, bpm, steps, length, gateLength, updateSequencer]);
+  }, [isPlaying, bpm, steps, length, gateLength, mode, drumTracks, updateSequencer]);
 
   // Listen for ticks from AudioWorklet
   useEffect(() => {
@@ -103,7 +105,7 @@ const Sequencer: React.FC<SequencerProps> = ({
     }
   }, [onSequencerStep]);
 
-  const updateStep = (idx: number, patch: Partial<Step>) => {
+  const updateMelodyStep = (idx: number, patch: Partial<Step>) => {
     setSteps(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], ...patch };
@@ -111,24 +113,74 @@ const Sequencer: React.FC<SequencerProps> = ({
     });
   };
 
-  const generateMelody = () => {
-    const root = 36 + Math.floor(Math.random() * 12);
-    const newSteps = steps.map(() => {
-      const scaleDegree = PENTATONIC_SCALE[Math.floor(Math.random() * PENTATONIC_SCALE.length)];
-      const octaveShift = Math.floor(Math.random() * 2) * 12;
-      return {
-        active: Math.random() > 0.4,
-        note: root + scaleDegree + octaveShift,
-        accent: Math.random() > 0.7,
-        slide: Math.random() > 0.8
-      };
-    });
-    setSteps(newSteps);
+  const updateDrumStep = (trackIdx: number, stepIdx: number, active: boolean) => {
+    const next = [...drumTracks];
+    const track = { ...next[trackIdx] };
+    const st = [...track.steps];
+    st[stepIdx] = { ...st[stepIdx], active };
+    track.steps = st;
+    next[trackIdx] = track;
+    setDrumTracks(next);
   };
 
+  const generateMelody = () => {
+    if (mode === 'drum') {
+       // Random drum pattern
+       const next = [...drumTracks];
+       for(let i=0; i<next.length; i++) {
+         const t = {...next[i]};
+         const st = [...t.steps];
+         for(let s=0; s<length; s++) {
+           st[s] = { ...st[s], active: Math.random() > (i === 0 ? 0.4 : 0.7) };
+         }
+         t.steps = st;
+         next[i] = t;
+       }
+       setDrumTracks(next);
+    } else {
+      const root = 36 + Math.floor(Math.random() * 12);
+      const PENTATONIC_SCALE = [0, 3, 5, 7, 10];
+      const newSteps = steps.map(() => {
+        const scaleDegree = PENTATONIC_SCALE[Math.floor(Math.random() * PENTATONIC_SCALE.length)];
+        const octaveShift = Math.floor(Math.random() * 2) * 12;
+        return {
+          active: Math.random() > 0.4,
+          note: root + scaleDegree + octaveShift,
+          accent: Math.random() > 0.7,
+          slide: Math.random() > 0.8
+        };
+      });
+      setSteps(newSteps);
+    }
+  };
+
+  const clearPattern = () => {
+    if (mode === 'drum') {
+      const next = drumTracks.map(t => ({...t, steps: t.steps.map((st:any) => ({...st, active: false}))}));
+      setDrumTracks(next);
+    } else {
+      setSteps(steps.map(s => ({ ...s, active: false })));
+    }
+  }
+
   return (
-    <div className="sequencer-container" style={{ padding: '5px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '5px' }}>
+    <div className="sequencer-container" style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      
+      {/* Top Toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '15px', paddingBottom: '8px', borderBottom: '1px solid #222', flexWrap: 'wrap' }}>
+        
+        {/* Mode Toggle */}
+        <div style={{ display: 'flex', background: '#111', padding: '2px', borderRadius: '4px', border: '1px solid #333' }}>
+           <button onClick={() => setMode('melody')} style={{ background: mode === 'melody' ? '#222' : 'transparent', color: mode === 'melody' ? '#ffcc00' : '#666', border: 'none', borderRadius: '3px', padding: '4px 8px', fontSize: '9px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+             <Music size={10} /> MELODY
+           </button>
+           <button onClick={() => setMode('drum')} style={{ background: mode === 'drum' ? '#222' : 'transparent', color: mode === 'drum' ? '#ffcc00' : '#666', border: 'none', borderRadius: '3px', padding: '4px 8px', fontSize: '9px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+             <Drum size={10} /> DRUMS
+           </button>
+        </div>
+
+        <div style={{ width: '1px', height: '16px', background: '#333' }} />
+
         <button 
           onClick={() => setIsPlaying(!isPlaying)}
           style={{ 
@@ -148,10 +200,23 @@ const Sequencer: React.FC<SequencerProps> = ({
             background: '#161b22', border: '1px solid #30363d', borderRadius: '4px', padding: '4px 12px', 
             color: '#7ec8ff', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', letterSpacing: '0.5px'
           }}
-          title="Generate random pentatonic sequence"
+          title="Generate random sequence"
         >
           GEN
         </button>
+
+        <button 
+          onClick={clearPattern}
+          style={{ 
+            background: '#161b22', border: '1px solid #30363d', borderRadius: '4px', padding: '4px 12px', 
+            color: '#aaa', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', letterSpacing: '0.5px'
+          }}
+          title="Clear sequence"
+        >
+          CLEAR
+        </button>
+
+        <div style={{ flex: 1 }} />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Timer size={12} color="#888" />
@@ -181,41 +246,96 @@ const Sequencer: React.FC<SequencerProps> = ({
         </div>
       </div>
 
-      <div className="step-grid" style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '8px' }}>
-        {steps.slice(0, length).map((step, i) => (
-          <div key={i} className={`step-column ${i === currentStep ? 'current' : ''}`} style={{ 
-            padding: '6px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px',
-            background: i === currentStep ? '#1a1f2e' : (Math.floor(i/4)%2 === 0 ? '#111' : '#161b22'),
-            border: i === currentStep ? '1px solid #7ec8ff' : '1px solid #222',
-            borderRadius: '4px', minWidth: '40px', transition: 'all 0.1s'
-          }}>
-            <div className="step-number" style={{ fontSize: '9px', color: i === currentStep ? '#7ec8ff' : '#666', fontWeight: 'bold', marginBottom: '2px' }}>{i + 1}</div>
-            <div 
-              onClick={() => updateStep(i, { active: !step.active })}
-              className={`step-led gate ${step.active ? 'active' : ''}`}
-              title="Gate (Active)"
-              style={{ width: '24px', height: '16px', background: step.active ? '#ff3366' : '#222', borderRadius: '2px', cursor: 'pointer', boxShadow: step.active ? '0 0 6px rgba(255, 51, 102, 0.4)' : 'none', border: '1px solid #111' }}
-            />
-            <div 
-              onClick={() => updateStep(i, { accent: !step.accent })}
-              className={`step-led accent ${step.accent ? 'active' : ''}`}
-              title="Accent (High Velocity)"
-              style={{ width: '24px', height: '16px', background: step.accent ? '#ffcc00' : '#222', borderRadius: '2px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #111' }}
-            >
-              <Zap size={10} color={step.accent ? "#000" : "#555"} />
+      {mode === 'melody' ? (
+        <div className="melody-grid" style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflowX: 'auto', paddingRight: '8px', paddingBottom: '8px' }}>
+          
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {/* Note Names Column */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '24px', flexShrink: 0 }}>
+               {GRID_NOTES.map(noteIdx => {
+                  const isBlackKey = [1, 3, 6, 8, 10].includes(noteIdx);
+                  return (
+                    <div key={noteIdx} style={{ height: '18px', background: isBlackKey ? '#0a0a0a' : '#1e1e1e', color: isBlackKey ? '#555' : '#888', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '2px' }}>
+                      {NOTES[noteIdx]}
+                    </div>
+                  )
+               })}
             </div>
-            <div 
-              onClick={() => updateStep(i, { slide: !step.slide })}
-              className={`step-led slide ${step.slide ? 'active' : ''}`}
-              title="Slide (Tie Note)"
-              style={{ width: '24px', height: '16px', background: step.slide ? '#00ffcc' : '#222', borderRadius: '2px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #111' }}
-            >
-              <FastForward size={10} color={step.slide ? "#000" : "#555"} />
-            </div>
-            <NoteInput value={step.note} onChange={(val) => updateStep(i, { note: val })} />
+
+            {/* Stepper Columns */}
+            {steps.slice(0, length).map((step, i) => {
+              const stepNoteIdx = step.note % 12;
+              const stepOctave = Math.floor(step.note / 12) - 1;
+
+              return (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '28px', flexShrink: 0, paddingLeft: '2px', paddingRight: '2px', background: i === currentStep ? 'rgba(126, 200, 255, 0.05)' : 'transparent', borderRadius: '2px' }}>
+                  {GRID_NOTES.map(noteIdx => {
+                    const isMatch = stepNoteIdx === noteIdx;
+                    const isActive = isMatch && step.active;
+                    const isHoverVal = isMatch && !step.active;
+
+                    // Piano roll cell colors
+                    let bg = '#161b22';
+                    if (isActive) bg = '#00ffcc';
+                    else if (isHoverVal) bg = '#1a3333';
+                    else if ([1, 3, 6, 8, 10].includes(noteIdx)) bg = '#0d1117'; 
+
+                    return (
+                      <div 
+                        key={noteIdx}
+                        onClick={() => {
+                          if (isMatch) {
+                            updateMelodyStep(i, { active: !step.active });
+                          } else {
+                            updateMelodyStep(i, { active: true, note: (stepOctave + 1)*12 + noteIdx });
+                          }
+                        }}
+                        style={{ 
+                          height: '18px', background: bg, borderRadius: '2px', cursor: 'pointer',
+                          border: isActive ? '1px solid #fff' : i === currentStep ? '1px solid #7ec8ff33' : '1px solid #222'
+                        }}
+                      />
+                    )
+                  })}
+
+                  {/* Controls under grid */}
+                  <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                     <DragNumber value={stepOctave} onChange={(v) => updateMelodyStep(i, { note: (v+1)*12 + stepNoteIdx })} min={0} max={9} label="Octave" />
+                     
+                     <div onClick={() => updateMelodyStep(i, { active: !step.active })} style={{ height: '14px', background: step.active ? '#ff3366' : '#222', borderRadius: '2px', cursor: 'pointer', border: '1px solid #111' }} title="Gate" />
+                     <div onClick={() => updateMelodyStep(i, { accent: !step.accent })} style={{ height: '14px', background: step.accent ? '#ffcc00' : '#222', borderRadius: '2px', cursor: 'pointer', border: '1px solid #111' }} title="Accent" />
+                     <div onClick={() => updateMelodyStep(i, { slide: !step.slide })} style={{ height: '14px', background: step.slide ? '#7ec8ff' : '#222', borderRadius: '2px', cursor: 'pointer', border: '1px solid #111' }} title="Slide" />
+                     
+                     <div style={{ fontSize: '9px', color: i === currentStep ? '#7ec8ff' : '#555', textAlign: 'center', marginTop: '2px', fontWeight: 'bold' }}>{i + 1}</div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className="drum-grid" style={{ display: 'flex', flexDirection: 'column', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginTop: '4px' }}>
+           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              <div style={{ width: '50px' }} /> {/* Label spacer */}
+              {Array.from({length: length}).map((_, i) => (
+                <div key={i} style={{ width: '28px', fontSize: '9px', fontWeight: 'bold', color: i === currentStep ? '#7ec8ff' : '#555', textAlign: 'center' }}>{i + 1}</div>
+              ))}
+           </div>
+           {drumTracks.map((track, tIdx) => (
+             <div key={tIdx} style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '2px 0' }}>
+               <div style={{ width: '40px', fontSize: '10px', fontWeight: 'bold', color: '#ffcc00', textAlign: 'right', paddingRight: '10px' }}>{track.name}</div>
+               {track.steps.slice(0, length).map((st: any, i: number) => (
+                 <div key={i} onClick={() => updateDrumStep(tIdx, i, !st.active)} style={{
+                   width: '28px', height: '24px', background: st.active ? '#ff3366' : (Math.floor(i/4)%2 === 0 ? '#111' : '#161b22'),
+                   borderRadius: '3px', cursor: 'pointer', border: currentStep === i ? '1px solid #7ec8ff' : '1px solid #222',
+                   boxShadow: st.active ? '0 0 6px rgba(255, 51, 102, 0.3)' : 'none', transition: 'all 0.1s'
+                 }} />
+               ))}
+             </div>
+           ))}
+        </div>
+      )}
+
     </div>
   );
 };

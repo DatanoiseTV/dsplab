@@ -470,6 +470,13 @@ const App: React.FC = () => {
   const [seqPlaying, setSeqPlaying] = useState(false);
   const [seqLength, setSeqLength] = useState(16);
   const [seqGateLength, setSeqGateLength] = useState(0.5);
+  const [seqMode, setSeqMode] = useState<'melody' | 'drum'>('melody');
+  const [seqDrumTracks, setSeqDrumTracks] = useState<any[]>(() => [
+    { name: 'BD', note: 36, steps: Array(16).fill(null).map(() => ({ active: false, accent: false })) },
+    { name: 'SD', note: 38, steps: Array(16).fill(null).map(() => ({ active: false, accent: false })) },
+    { name: 'CH', note: 42, steps: Array(16).fill(null).map(() => ({ active: false, accent: false })) },
+    { name: 'OH', note: 46, steps: Array(16).fill(null).map(() => ({ active: false, accent: false })) },
+  ]);
   
   const [inputs, setInputs] = useState<InputSource[]>([]);
   const [midiInputs, setMidiInputs] = useState<any[]>([]);
@@ -1065,12 +1072,14 @@ const App: React.FC = () => {
                       setBpm={setSeqBpm} 
                       isPlaying={seqPlaying} 
                       setIsPlaying={setSeqPlaying} 
-                      onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)} 
-                      onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)} 
                       length={seqLength} 
                       setLength={setSeqLength} 
                       gateLength={seqGateLength}
                       setGateLength={setSeqGateLength}
+                      mode={seqMode}
+                      setMode={setSeqMode}
+                      drumTracks={seqDrumTracks}
+                      setDrumTracks={setSeqDrumTracks}
                       onSequencerStep={(cb) => audioEngineRef.current.onSequencerStep(cb)}
                       updateSequencer={(data) => audioEngineRef.current.setSequencer(data as any)}
                     />

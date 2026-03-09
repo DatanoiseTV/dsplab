@@ -65,10 +65,13 @@ class VultProcessor extends AudioWorkletProcessor {
       bpm: 120,
       length: 16,
       gateLength: 0.5,
+      mode: 'melody',
       steps: [],
+      tracks: [],
       currentStep: -1,
       sampleCounter: 0,
-      lastNote: null
+      lastNote: null,
+      activeDrumNotes: []
     };
 
     this.port.onmessage = (event) => {
@@ -266,37 +269,61 @@ class VultProcessor extends AudioWorkletProcessor {
     for (let i = 0; i < numSamples; i++) {
       
       // Handle Sequencer Tick
-      if (this.seqState.isPlaying && this.seqState.steps && this.seqState.steps.length > 0) {
+      if (this.seqState.isPlaying && ((this.seqState.mode === 'melody' && this.seqState.steps && this.seqState.steps.length > 0) || (this.seqState.mode === 'drum' && this.seqState.tracks))) {
         if (this.seqState.sampleCounter <= 0) {
           this.seqState.currentStep = (this.seqState.currentStep + 1) % (this.seqState.length || 16);
           this.seqState.sampleCounter = samplesPerTick;
-          
-          const step = this.seqState.steps[this.seqState.currentStep];
-          const prevIdx = (this.seqState.currentStep + this.seqState.length - 1) % this.seqState.length;
-          const prevStep = this.seqState.steps[prevIdx];
-          
-          if (step && step.active) {
-            const vel = step.accent ? 127 : 100;
-            if (this.seqState.lastNote !== null && (!prevStep || !prevStep.slide)) {
+
+          if (this.seqState.mode === 'drum') {
+            if (this.seqState.activeDrumNotes) {
+              this.seqState.activeDrumNotes.forEach(n => this.handleMIDIEvents('noteOff', { note: n }));
+            }
+            this.seqState.activeDrumNotes = [];
+            const tracks = this.seqState.tracks || [];
+            tracks.forEach(track => {
+              const step = track.steps[this.seqState.currentStep];
+              if (step && step.active) {
+                const vel = step.accent ? 127 : 100;
+                this.handleMIDIEvents('noteOn', { note: track.note, velocity: vel, channel: 9 });
+                this.seqState.activeDrumNotes.push(track.note);
+              }
+            });
+          } else {
+            const step = this.seqState.steps[this.seqState.currentStep];
+            const prevIdx = (this.seqState.currentStep + this.seqState.length - 1) % this.seqState.length;
+            const prevStep = this.seqState.steps[prevIdx];
+
+            if (step && step.active) {
+              const vel = step.accent ? 127 : 100;
+              if (this.seqState.lastNote !== null && (!prevStep || !prevStep.slide)) {
+                this.killLastNote();
+              }
+              this.handleMIDIEvents('noteOn', { note: step.note, velocity: vel });
+              this.seqState.lastNote = step.note;
+            } else {
               this.killLastNote();
             }
-            this.handleMIDIEvents('noteOn', { note: step.note, velocity: vel });
-            this.seqState.lastNote = step.note;
-          } else {
-            this.killLastNote();
           }
-          
-          // Send step update to UI periodically, not every tick
+
           if (this.seqState.currentStep % 1 === 0) {
             this.port.postMessage({ type: 'seqStep', step: this.seqState.currentStep });
           }
         } else {
-          const step = this.seqState.steps[this.seqState.currentStep];
           const gateLength = this.seqState.gateLength !== undefined ? this.seqState.gateLength : 0.5;
           const offThreshold = Math.floor(samplesPerTick * (1.0 - gateLength));
-          
-          if (step && this.seqState.sampleCounter === offThreshold && !step.slide) {
-             this.killLastNote();
+
+          if (this.seqState.sampleCounter === offThreshold) {
+            if (this.seqState.mode === 'drum') {
+              if (this.seqState.activeDrumNotes) {
+                this.seqState.activeDrumNotes.forEach(n => this.handleMIDIEvents('noteOff', { note: n }));
+                this.seqState.activeDrumNotes = [];
+              }
+            } else {
+              const step = this.seqState.steps[this.seqState.currentStep];
+              if (step && !step.slide) {
+                 this.killLastNote();
+              }
+            }
           }
         }
         this.seqState.sampleCounter--;
