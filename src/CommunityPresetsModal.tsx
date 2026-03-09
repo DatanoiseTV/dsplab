@@ -48,13 +48,18 @@ const CommunityPresetsModal: React.FC<CommunityPresetsModalProps> = ({ onClose, 
   const [activeAuthor, setActiveAuthor] = useState('all');
   const [activeTag, setActiveTag] = useState('all');
   const [previewCode, setPreviewCode] = useState('');
+  const [showAllTags, setShowAllTags] = useState(false);
 
   const allPresets = communityGroups.flatMap(group => 
     group.presets.map((p: any) => ({ ...p, author: group.author }))
   ).sort((a, b) => a.name.localeCompare(b.name));
 
   const authors = ['all', ...Array.from(new Set(allPresets.map(p => p.author)))];
-  const tags = ['all', ...Array.from(new Set(allPresets.flatMap(p => p.meta?.tags || [])))];
+  
+  const allTags = allPresets.flatMap(p => p.meta?.tags || []);
+  const tagFrequencies = allTags.reduce((acc, tag) => { acc[tag] = (acc[tag] || 0) + 1; return acc; }, {} as Record<string, number>);
+  const topTags = Object.keys(tagFrequencies).sort((a, b) => tagFrequencies[b] - tagFrequencies[a]).slice(0, 10);
+  const tagsToShow = showAllTags ? Object.keys(tagFrequencies).sort() : topTags;
 
   const filteredPresets = allPresets.filter(p => {
     const role = p.meta?.role || 'effect';
