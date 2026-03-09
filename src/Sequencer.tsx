@@ -8,6 +8,11 @@ export interface Step {
   slide: boolean;
 }
 
+export interface CCTrack {
+  cc: number;
+  steps: number[];
+}
+
 interface SequencerProps {
   steps: Step[];
   setSteps: React.Dispatch<React.SetStateAction<Step[]>>;
@@ -23,6 +28,9 @@ interface SequencerProps {
   setMode: (m: 'melody' | 'drum') => void;
   drumTracks: any[];
   setDrumTracks: any;
+  ccTracks: CCTrack[];
+  setCCTracks: React.Dispatch<React.SetStateAction<CCTrack[]>>;
+  ccLabels: Record<number, string>;
   onSequencerStep?: (callback: (step: number) => void) => () => void;
   updateSequencer?: (data: any) => void;
 }
@@ -82,9 +90,67 @@ const DragNumber: React.FC<{ value: number, onChange: (v: number) => void, min: 
   );
 };
 
+const CCLane: React.FC<{ track: CCTrack, length: number, currentStep: number, onChange: (steps: number[]) => void, onRemove: () => void, ccName: string }> = ({ track, length, currentStep, onChange, onRemove, ccName }) => {
+  const [isDrawing, setIsDrawing] = useState(false);
+
+  const updateStep = (idx: number, clientY: number, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    const pct = 1.0 - Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    const val = Math.floor(pct * 127);
+    const next = [...track.steps];
+    next[idx] = val;
+    onChange(next);
+  };
+
+  const handlePointerDown = (i: number, e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsDrawing(true);
+    updateStep(i, e.clientY, e.currentTarget);
+  };
+
+  const handlePointerMove = (i: number, e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDrawing) return;
+    updateStep(i, e.clientY, e.currentTarget);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setIsDrawing(false);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: '#111', padding: '6px 8px', borderRadius: '4px', border: '1px solid #333' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '10px', color: '#ffcc00', fontWeight: 'bold' }}>{ccName}</span>
+        <button onClick={onRemove} style={{ background: 'transparent', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '12px' }}>&times;</button>
+      </div>
+      <div style={{ display: 'flex', gap: '4px' }}>
+        <div style={{ width: '50px' }} /> {/* Label spacer sync with drum grid */}
+        {track.steps.map((val, i) => {
+          const isActive = i < length;
+          const pct = Math.max(0, Math.min(100, (val / 127) * 100));
+          return (
+            <div 
+              key={i} 
+              onPointerDown={(e) => isActive && handlePointerDown(i, e)}
+              onPointerMove={(e) => isActive && handlePointerMove(i, e)}
+              onPointerUp={handlePointerUp}
+              style={{ width: '28px', height: '40px', background: i === currentStep ? '#1a1f2e' : '#161b22', border: i === currentStep ? '1px solid #7ec8ff' : '1px solid #222', borderRadius: '2px', position: 'relative', cursor: isActive ? 'ns-resize' : 'default', touchAction: 'none', opacity: isActive ? 1 : 0.3 }}
+            >
+               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: '#ffcc00', borderRadius: '0 0 2px 2px', opacity: 0.8, pointerEvents: 'none' }} />
+               <div style={{ position: 'absolute', top: '-12px', left: 0, width: '100%', textAlign: 'center', fontSize: '8px', color: '#555' }}>{val}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  );
+};
+
 const Sequencer: React.FC<SequencerProps> = ({ 
   steps, setSteps, bpm, setBpm, isPlaying, setIsPlaying, length, setLength, 
   gateLength, setGateLength, mode, setMode, drumTracks, setDrumTracks,
+  ccTracks, setCCTracks, ccLabels,
   onSequencerStep, updateSequencer 
 }) => {
   const [currentStep, setCurrentStep] = useState(-1);
@@ -92,9 +158,9 @@ const Sequencer: React.FC<SequencerProps> = ({
   // Sync state to AudioWorklet
   useEffect(() => {
     if (updateSequencer) {
-      updateSequencer({ isPlaying, bpm, steps, length, gateLength, mode, tracks: drumTracks });
+      updateSequencer({ isPlaying, bpm, steps, length, gateLength, mode, tracks: drumTracks, ccTracks });
     }
-  }, [isPlaying, bpm, steps, length, gateLength, mode, drumTracks, updateSequencer]);
+  }, [isPlaying, bpm, steps, length, gateLength, mode, drumTracks, ccTracks, updateSequencer]);
 
   // Listen for ticks from AudioWorklet
   useEffect(() => {
@@ -336,6 +402,42 @@ const Sequencer: React.FC<SequencerProps> = ({
            ))}
         </div>
       )}
+
+      {/* CC Automation Lanes */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px', paddingBottom: '16px' }}>
+         {ccTracks.map((track, i) => (
+           <CCLane 
+             key={`cc-${track.cc}`} 
+             track={track} 
+             length={length} 
+             currentStep={currentStep} 
+             onChange={st => setCCTracks(prev => prev.map((t, tidx) => tidx === i ? { ...t, steps: st } : t))}
+             onRemove={() => setCCTracks(prev => prev.filter((_, tidx) => tidx !== i))}
+             ccName={`CC ${track.cc} (${ccLabels[track.cc] || 'Unknown'})`}
+           />
+         ))}
+
+         {/* Add CC button drop menu */}
+         <div style={{ paddingLeft: '54px' }}>
+           <select 
+             value="" 
+             onChange={(e) => {
+               const cc = parseInt(e.target.value);
+               if (!ccTracks.find(t => t.cc === cc)) {
+                 setCCTracks(prev => [...prev, { cc, steps: Array(32).fill(0) }]);
+               }
+             }}
+             style={{ background: '#161b22', border: '1px solid #30363d', color: '#aaa', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', outline: 'none', cursor: 'pointer' }}
+           >
+             <option value="" disabled>+ Add CC Lane...</option>
+             {Object.entries(ccLabels).map(([cc, label]) => (
+                <option key={cc} value={cc} disabled={ccTracks.some(t => t.cc === parseInt(cc))}>
+                  CC {cc} - {label}
+                </option>
+             ))}
+           </select>
+         </div>
+      </div>
 
     </div>
   );

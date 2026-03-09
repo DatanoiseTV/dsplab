@@ -308,6 +308,16 @@ class VultProcessor extends AudioWorkletProcessor {
             }
           }
 
+          // CC Automation
+          if (this.seqState.ccTracks) {
+             this.seqState.ccTracks.forEach(track => {
+                const val = track.steps[this.seqState.currentStep];
+                if (val !== undefined && val !== null) {
+                   this.handleMIDIEvents('controlChange', { control: track.cc, value: Math.floor(val) });
+                }
+             });
+          }
+
           if (this.seqState.currentStep % 1 === 0) {
             this.port.postMessage({ type: 'seqStep', step: this.seqState.currentStep });
           }
