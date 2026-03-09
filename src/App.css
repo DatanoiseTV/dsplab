@@ -223,7 +223,7 @@
 }
 
 .scope-section { 
-  flex: 0 0 200px; 
+  flex: 0 0 350px; 
   padding: 10px; 
   border-bottom: 1px solid var(--border-subtle); 
   background: #000; 

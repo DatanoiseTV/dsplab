@@ -790,7 +790,15 @@ const App: React.FC = () => {
     setCode(newCode);
     localStorage.setItem('vult_session_code', newCode);
     
-    setCcLabels(parseVultCCs(newCode));
+    const newCCLabels = parseVultCCs(newCode);
+    setCcLabels(newCCLabels);
+    
+    // Completely recreate CC Lanes for the new preset
+    setSeqCCTracks(Object.keys(newCCLabels).map(ccStr => ({
+      cc: parseInt(ccStr),
+      steps: Array(32).fill(0)
+    })));
+
     setInputs(parseVultInputs(newCode));
 
     if (isPlaying) {
