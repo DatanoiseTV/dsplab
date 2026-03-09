@@ -33,6 +33,27 @@ function ComplexityBadge({ level }: { level?: string }) {
   );
 }
 
+// ── Role badge ────────────────────────────────────────────────────────────────
+
+const ROLE_STYLE: Record<string, { bg: string; label: string }> = {
+  instrument: { bg: '#1f4e79', label: 'Instrument' },
+  effect:     { bg: '#2d4a1e', label: 'Effect'     },
+  utility:    { bg: '#3a3020', label: 'Utility'    },
+};
+
+function RoleBadge({ role }: { role?: string }) {
+  if (!role) return null;
+  const s = ROLE_STYLE[role] ?? { bg: '#333', label: role };
+  return (
+    <span style={{
+      fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.5px',
+      textTransform: 'uppercase', padding: '2px 6px', borderRadius: '3px',
+      background: s.bg, color: '#cce4ff', flexShrink: 0,
+      border: `1px solid ${s.bg}cc`,
+    }}>{s.label}</span>
+  );
+}
+
 // ── Category badge ────────────────────────────────────────────────────────────
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -50,6 +71,26 @@ function CategoryBadge({ category }: { category?: string }) {
       background: CATEGORY_COLORS[category] ?? '#333',
       color: '#fff', flexShrink: 0,
     }}>{category}</span>
+  );
+}
+
+// ── Role section divider ──────────────────────────────────────────────────────
+
+const ROLE_ORDER: Array<'instrument' | 'effect' | 'utility'> = ['instrument', 'effect', 'utility'];
+
+function RoleDivider({ role }: { role: string }) {
+  const s = ROLE_STYLE[role] ?? { bg: '#333', label: role };
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '8px',
+      padding: '5px 14px 3px 28px', marginTop: '4px',
+    }}>
+      <span style={{
+        fontSize: '9px', fontWeight: 'bold', letterSpacing: '1px',
+        textTransform: 'uppercase', color: '#555',
+      }}>{s.label}s</span>
+      <div style={{ flex: 1, height: '1px', background: '#21262d' }} />
+    </div>
   );
 }
 
@@ -233,6 +274,7 @@ const CommunityPresets = ({ onLoad, onInsert }: Props) => {
 
           {preset.meta && <CategoryBadge category={preset.meta.category} />}
           {preset.meta && <ComplexityBadge level={preset.meta.complexity} />}
+          {preset.meta?.role && <RoleBadge role={preset.meta.role} />}
 
           <BookOpen
             size={11} color="#333"
@@ -350,22 +392,43 @@ const CommunityPresets = ({ onLoad, onInsert }: Props) => {
         )}
 
         {/* ── PRESETS ── */}
-        {tab === 'presets' && groups.map(group => (
-          <div key={group.author}>
-            <div onClick={() => toggleAuthor('p:' + group.author)} style={{
-              display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 14px',
-              cursor: 'pointer', userSelect: 'none',
-              color: expanded.has('p:' + group.author) ? '#e6edf3' : '#8b949e',
-              background: expanded.has('p:' + group.author) ? '#161b22' : 'transparent',
-            }}>
-              {expanded.has('p:' + group.author) ? <ChevronDown size={12} color="#555" /> : <ChevronRight size={12} color="#555" />}
-              <User size={12} color="#ffcc00" />
-              <span style={{ fontSize: '12px', fontWeight: 'bold', flex: 1 }}>{group.author}</span>
-              <span style={{ fontSize: '10px', color: '#444' }}>{group.presets.length}</span>
+        {tab === 'presets' && groups.map(group => {
+          // Split presets by role; preserve ROLE_ORDER for consistent display
+          const byRole = new Map<string, CommunityPreset[]>();
+          for (const p of group.presets) {
+            const r = p.meta?.role ?? 'effect';
+            if (!byRole.has(r)) byRole.set(r, []);
+            byRole.get(r)!.push(p);
+          }
+          const rolesPresent = ROLE_ORDER.filter(r => byRole.has(r));
+          const showDividers = rolesPresent.length > 1;
+
+          return (
+            <div key={group.author}>
+              <div onClick={() => toggleAuthor('p:' + group.author)} style={{
+                display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 14px',
+                cursor: 'pointer', userSelect: 'none',
+                color: expanded.has('p:' + group.author) ? '#e6edf3' : '#8b949e',
+                background: expanded.has('p:' + group.author) ? '#161b22' : 'transparent',
+              }}>
+                {expanded.has('p:' + group.author) ? <ChevronDown size={12} color="#555" /> : <ChevronRight size={12} color="#555" />}
+                <User size={12} color="#ffcc00" />
+                <span style={{ fontSize: '12px', fontWeight: 'bold', flex: 1 }}>{group.author}</span>
+                <span style={{ fontSize: '10px', color: '#444' }}>{group.presets.length}</span>
+              </div>
+              {expanded.has('p:' + group.author) && (
+                <>
+                  {rolesPresent.map(role => (
+                    <div key={role}>
+                      {showDividers && <RoleDivider role={role} />}
+                      {(byRole.get(role) ?? []).map(renderPreset)}
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
-            {expanded.has('p:' + group.author) && group.presets.map(renderPreset)}
-          </div>
-        ))}
+          );
+        })}
 
         {tab === 'presets' && !loading && groups.length === 0 && (
           <div style={{ padding: '20px 14px', color: '#444', fontSize: '12px', textAlign: 'center' }}>No presets found.</div>

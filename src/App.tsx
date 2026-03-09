@@ -860,13 +860,23 @@ const App: React.FC = () => {
               <optgroup label="Built-in">
                 {Object.keys(PRESETS).map(p => <option key={p} value={p}>{p}</option>)}
               </optgroup>
-              {communityGroups.length > 0 && communityGroups.map(group => (
-                <optgroup key={group.author} label={`Community — ${group.author}`}>
-                  {group.presets.map(p => (
-                    <option key={p.path} value={`community:${p.path}`} style={{ textTransform: 'capitalize' }}>{p.name}</option>
-                  ))}
-                </optgroup>
-              ))}
+              {communityGroups.length > 0 && communityGroups.map(group => {
+                const byRole: Record<string, typeof group.presets> = {};
+                for (const p of group.presets) {
+                  const r = p.meta?.role ?? 'effect';
+                  if (!byRole[r]) byRole[r] = [];
+                  byRole[r].push(p);
+                }
+                const roleOrder = ['instrument', 'effect', 'utility'] as const;
+                const rolesPresent = roleOrder.filter(r => byRole[r]?.length);
+                return rolesPresent.map(role => (
+                  <optgroup key={`${group.author}-${role}`} label={`Community / ${group.author} — ${role[0].toUpperCase() + role.slice(1)}s`}>
+                    {byRole[role].map(p => (
+                      <option key={p.path} value={`community:${p.path}`}>{p.name}</option>
+                    ))}
+                  </optgroup>
+                ));
+              })}
               {communityLoading && <optgroup label="Community"><option disabled>Loading...</option></optgroup>}
             </select>
           </div>

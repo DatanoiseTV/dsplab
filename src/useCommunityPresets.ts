@@ -31,6 +31,8 @@ export interface VultMeta {
   tags: string[];
   complexity: 'beginner' | 'intermediate' | 'advanced';
   type: 'preset' | 'module';
+  /** Top-level grouping for presets: instrument | effect | utility */
+  role?: 'instrument' | 'effect' | 'utility';
   inputs?: { audio?: boolean; midi?: boolean; cv?: boolean };
   knobs?: Record<string, MetaKnob>;
   functions?: MetaFunction[];
