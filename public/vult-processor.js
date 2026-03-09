@@ -139,8 +139,12 @@ class VultProcessor extends AudioWorkletProcessor {
           else if (type === 'noteOn') method.call(this.vultInstance, data.note, data.velocity, data.channel || 0);
           else method.call(this.vultInstance, data.control, data.value, data.channel || 0);
           
-          // Notify the UI thread for LED blinking
-          this.port.postMessage({ type: 'midiAct', kind: type });
+          // Notify the UI thread for LED blinking (throttled to relieve React CPU load)
+          if (!this.lastMidiTime) this.lastMidiTime = {};
+          if ((currentTime - (this.lastMidiTime[type] || 0)) > 0.05) {
+             this.port.postMessage({ type: 'midiAct', kind: type });
+             this.lastMidiTime[type] = currentTime;
+          }
         } catch(e) {
           this.handleRuntimeCrash(e);
         }
@@ -333,19 +337,29 @@ class VultProcessor extends AudioWorkletProcessor {
         }
         this.seqState.sampleCounter--;
 
-        // CC Automation (Smooth Interpolation)
+        // CC Automation (Catmull-Rom Spline Interpolation)
         if (this.seqState.ccTracks && this.seqState.ccTracks.length > 0) {
            if (!this.lastSentCC) this.lastSentCC = {};
            
            this.seqState.ccTracks.forEach(track => {
+              const len = this.seqState.length || 16;
               const currentStep = this.seqState.currentStep;
-              const nextStep = (currentStep + 1) % (this.seqState.length || 16);
-              const val1 = track.steps[currentStep];
-              const val2 = track.steps[nextStep];
               
-              if (val1 !== undefined && val2 !== undefined) {
+              const v0 = track.steps[(currentStep - 1 + len) % len];
+              const v1 = track.steps[currentStep];
+              const v2 = track.steps[(currentStep + 1) % len];
+              const v3 = track.steps[(currentStep + 2) % len];
+              
+              if (v1 !== undefined && v2 !== undefined && v0 !== undefined && v3 !== undefined) {
                  const t = 1.0 - (Math.max(0, this.seqState.sampleCounter) / samplesPerTick);
-                 const smoothVal = Math.floor(val1 * (1 - t) + val2 * t);
+                 
+                 const c0 = v1;
+                 const c1 = 0.5 * (v2 - v0);
+                 const c2 = v0 - 2.5 * v1 + 2 * v2 - 0.5 * v3;
+                 const c3 = -0.5 * v0 + 1.5 * v1 - 1.5 * v2 + 0.5 * v3;
+                 
+                 const smoothValRaw = c0 + c1*t + c2*t*t + c3*t*t*t;
+                 const smoothVal = Math.max(0, Math.min(127, Math.floor(smoothValRaw)));
                  
                  if (this.lastSentCC[track.cc] !== smoothVal) {
                     this.lastSentCC[track.cc] = smoothVal;

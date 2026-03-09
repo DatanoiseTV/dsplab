@@ -149,15 +149,25 @@ const CCLane: React.FC<{ track: CCTrack, length: number, currentStep: number, on
     lastDrawRef.current = null;
   };
 
-  const svgD = track.steps.slice(0, length).reduce((acc, val, i) => {
-    const x = i * 32 + 14;
-    const y = 40 - (val / 127) * 40;
-    return acc + (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`);
-  }, "");
+  const pts = track.steps.slice(0, length).map((val, i) => [i * 32 + 14, 40 - (val / 127) * 40]);
+  let svgD = pts.length > 0 ? `M ${pts[0][0]} ${pts[0][1]}` : "";
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = i === 0 ? pts[pts.length - 1] : pts[i - 1]; // Use wrapped point for correct looping tangent
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = i + 2 < pts.length ? pts[i + 2] : pts[0]; // Wrapped
+    
+    const cp1x = p1[0] + 32 / 3;
+    const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const cp2x = p2[0] - 32 / 3;
+    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+    
+    svgD += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2[0]} ${p2[1]}`;
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: '#111', padding: '6px 8px', borderRadius: '4px', border: '1px solid #333' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: '#111', padding: '6px 0', borderRadius: '4px', border: '1px solid #333' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px' }}>
         <span style={{ fontSize: '10px', color: '#ffcc00', fontWeight: 'bold' }}>{ccName}</span>
         <button onClick={onRemove} style={{ background: 'transparent', border: 'none', color: '#ff4444', cursor: 'pointer', fontSize: '12px' }}>&times;</button>
       </div>
@@ -173,7 +183,7 @@ const CCLane: React.FC<{ track: CCTrack, length: number, currentStep: number, on
             return (
               <div 
                 key={i} 
-                style={{ width: '28px', height: '40px', background: i === currentStep ? '#1a1f2e' : '#161b22', border: i === currentStep ? '1px solid #7ec8ff' : '1px solid #222', borderRadius: '2px', position: 'relative', opacity: isActive ? 1 : 0.3 }}
+                style={{ width: '28px', flexShrink: 0, height: '40px', background: i === currentStep ? '#1a1f2e' : '#161b22', border: i === currentStep ? '1px solid #7ec8ff' : '1px solid #222', borderRadius: '2px', position: 'relative', opacity: isActive ? 1 : 0.3 }}
               >
                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: '#ffcc00', borderRadius: '0 0 2px 2px', opacity: 0.15, pointerEvents: 'none' }} />
                 <div style={{ position: 'absolute', top: '-12px', left: 0, width: '100%', textAlign: 'center', fontSize: '8px', color: '#55', opacity: isActive ? 1 : 0 }}>{track.steps[i]}</div>
@@ -369,8 +379,9 @@ const Sequencer: React.FC<SequencerProps> = ({
         </div>
       </div>
 
-      {mode === 'melody' ? (
-        <div className="melody-grid" style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflowX: 'auto', paddingRight: '8px', paddingBottom: '8px' }}>
+      <div style={{ overflowX: 'auto', overflowY: 'hidden', paddingBottom: '16px', display: 'flex', flexDirection: 'column' }}>
+        {mode === 'melody' ? (
+          <div className="melody-grid" style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingRight: '8px' }}>
           
           <div style={{ display: 'flex', gap: '4px' }}>
             {/* Note Names Column */}
@@ -438,11 +449,11 @@ const Sequencer: React.FC<SequencerProps> = ({
           </div>
         </div>
       ) : (
-        <div className="drum-grid" style={{ display: 'flex', flexDirection: 'column', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginTop: '4px' }}>
+        <div className="drum-grid" style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
             <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               <div style={{ width: '50px', flexShrink: 0 }} /> {/* Label spacer */}
               {Array.from({length: 32}).map((_, i) => (
-                <div key={i} style={{ width: '28px', fontSize: '9px', fontWeight: 'bold', color: i === currentStep ? '#7ec8ff' : '#555', textAlign: 'center', opacity: i < length ? 1 : 0.3, transition: 'opacity 0.2s' }}>{i + 1}</div>
+                <div key={i} style={{ width: '28px', flexShrink: 0, fontSize: '9px', fontWeight: 'bold', color: i === currentStep ? '#7ec8ff' : '#555', textAlign: 'center', opacity: i < length ? 1 : 0.3, transition: 'opacity 0.2s' }}>{i + 1}</div>
               ))}
            </div>
            {drumTracks.map((track, tIdx) => (
@@ -450,7 +461,7 @@ const Sequencer: React.FC<SequencerProps> = ({
                <div style={{ width: '50px', flexShrink: 0, fontSize: '10px', fontWeight: 'bold', color: '#ffcc00', textAlign: 'right', paddingRight: '10px', boxSizing: 'border-box' }}>{track.name}</div>
                {track.steps.map((st: any, i: number) => (
                  <div key={i} onClick={() => updateDrumStep(tIdx, i, !st.active)} style={{
-                   width: '28px', height: '24px', background: st.active ? '#ff3366' : (Math.floor(i/4)%2 === 0 ? '#111' : '#161b22'),
+                   width: '28px', flexShrink: 0, height: '24px', background: st.active ? '#ff3366' : (Math.floor(i/4)%2 === 0 ? '#111' : '#161b22'),
                    borderRadius: '3px', cursor: 'pointer', border: currentStep === i ? '1px solid #7ec8ff' : '1px solid #222',
                    boxShadow: st.active ? '0 0 6px rgba(255, 51, 102, 0.3)' : 'none', transition: 'all 0.1s', opacity: i < length ? 1 : 0.3, pointerEvents: i < length ? 'auto' : 'none'
                  }} />
@@ -461,7 +472,7 @@ const Sequencer: React.FC<SequencerProps> = ({
       )}
 
       {/* CC Automation Lanes */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px', paddingBottom: '16px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
          {ccTracks.map((track, i) => (
            <CCLane 
              key={`cc-${track.cc}`} 
@@ -494,6 +505,8 @@ const Sequencer: React.FC<SequencerProps> = ({
              ))}
            </select>
          </div>
+      </div>
+      
       </div>
 
     </div>

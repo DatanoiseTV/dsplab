@@ -479,7 +479,9 @@ const App: React.FC = () => {
   ]);
   const [seqCCTracks, setSeqCCTracks] = useState<any[]>([]);
 
-  const [midiLeds, setMidiLeds] = useState({ note: false, cc: false });
+  const midiNoteLedRef = useRef<HTMLDivElement>(null);
+  const midiCcLedRef = useRef<HTMLDivElement>(null);
+  const midiPulseTimeouts = useRef<{ note: any, cc: any }>({ note: null, cc: null });
   
   const [inputs, setInputs] = useState<InputSource[]>([]);
   const [midiInputs, setMidiInputs] = useState<any[]>([]);
@@ -599,8 +601,19 @@ const App: React.FC = () => {
       ae.onAudioStatusUpdate(setAudioStatus);
       ae.onMidiActivity((kind) => {
         const isNote = kind.startsWith('note');
-        setMidiLeds(prev => ({ ...prev, [isNote ? 'note' : 'cc']: true }));
-        setTimeout(() => setMidiLeds(prev => ({ ...prev, [isNote ? 'note' : 'cc']: false })), 80);
+        const ref = isNote ? midiNoteLedRef : midiCcLedRef;
+        const color = isNote ? '#00ffcc' : '#ffcc00';
+        if (ref.current) {
+           ref.current.style.background = color;
+           ref.current.style.boxShadow = `0 0 5px ${color}`;
+           clearTimeout(midiPulseTimeouts.current[isNote ? 'note' : 'cc']);
+           midiPulseTimeouts.current[isNote ? 'note' : 'cc'] = setTimeout(() => {
+              if (ref.current) {
+                 ref.current.style.background = '#333';
+                 ref.current.style.boxShadow = 'none';
+              }
+           }, 80);
+        }
       });
     };
     startup();
@@ -993,10 +1006,10 @@ const App: React.FC = () => {
           <div className="spacer" />
           <div className="midi-leds" style={{ display: 'flex', gap: '8px', marginRight: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '9px', fontWeight: 'bold', color: '#666' }}>
-              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: midiLeds.note ? '#00ffcc' : '#333', boxShadow: midiLeds.note ? '0 0 5px #00ffcc' : 'none', transition: 'background 0.05s' }} /> NOTE
+              <div ref={midiNoteLedRef} style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#333', boxShadow: 'none', transition: 'background 0.05s' }} /> NOTE
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '9px', fontWeight: 'bold', color: '#666' }}>
-              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: midiLeds.cc ? '#ffcc00' : '#333', boxShadow: midiLeds.cc ? '0 0 5px #ffcc00' : 'none', transition: 'background 0.05s' }} /> CC
+              <div ref={midiCcLedRef} style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#333', boxShadow: 'none', transition: 'background 0.05s' }} /> CC
             </div>
           </div>
           <div className="audio-metrics-badge" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '10px', color: '#888', marginRight: '16px' }}>
