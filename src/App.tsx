@@ -4,6 +4,7 @@ import { AudioEngine } from './AudioEngine';
 import type { InputSource, SourceType } from './AudioEngine';
 import { MIDIController } from './MIDIController';
 import VultEditor from './VultEditor';
+import type { VultEditorHandle } from './VultEditor';
 import ScopeView from './ScopeView';
 import LLMPane from './LLMPane';
 import VirtualMIDI from './VirtualMIDI';
@@ -488,6 +489,7 @@ const App: React.FC = () => {
   const audioEngineRef = useRef<AudioEngine>(new AudioEngine());
   const midiControllerRef = useRef<MIDIController | null>(null);
   const skipNextUpdateRef = useRef(false);
+  const vultEditorRef = useRef<VultEditorHandle>(null);
 
   const parseVultCCs = useCallback((vultCode: string) => {
     const ccMap: Record<number, string> = {};
@@ -887,7 +889,7 @@ const App: React.FC = () => {
         <div className="editor-layout">
           <div className="editor-container">
             <div className="editor-wrapper" style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-              <VultEditor code={code} onChange={handleCodeChange} markers={editorMarkers} onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} diffMode={diffMode} originalCode={originalCode} />
+              <VultEditor ref={vultEditorRef} code={code} onChange={handleCodeChange} markers={editorMarkers} onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} diffMode={diffMode} originalCode={originalCode} />
               {diffMode && (
                 <div style={{ position: 'absolute', bottom: '20px', right: '20px', display: 'flex', gap: '10px', zIndex: 100 }}>
                   <button onClick={handleRejectDiff} style={{ background: '#444', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>REJECT</button>
@@ -1016,11 +1018,17 @@ const App: React.FC = () => {
                   </div>
                 </div>
               ) : showCommunity ? (
-                <CommunityPresets onLoad={(code, name) => {
-                  handleLoadCode(code);
-                  setProjectName(name);
-                  setShowCommunity(false);
-                }} />
+                <CommunityPresets
+                  onLoad={(code, name) => {
+                    handleLoadCode(code);
+                    setProjectName(name);
+                    setShowCommunity(false);
+                  }}
+                  onInsert={(code) => {
+                    vultEditorRef.current?.insertAtCursor(code);
+                    setShowCommunity(false);
+                  }}
+                />
               ) : showInspector ? (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div style={{ flex: 1, minHeight: 0 }}>

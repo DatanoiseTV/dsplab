@@ -5,9 +5,15 @@ const TREE_URL = `/api/github/repos/${REPO}/git/trees/main?recursive=1`;
 const CACHE_TTL = 60_000;
 
 export interface CommunityPreset {
-  name: string;    // display name (filename without .vult, underscores -> spaces)
+  name: string;    // display name (filename without .vult, underscores/dashes -> spaces)
   path: string;    // full path in repo e.g. "DatanoiseTV/ladder_filter.vult"
   author: string;  // top-level folder name
+}
+
+export interface CommunityModule {
+  name: string;    // display name
+  path: string;    // full path e.g. "modules/DatanoiseTV/adsr.vult"
+  author: string;  // second-level folder inside modules/
 }
 
 export interface AuthorGroup {
@@ -15,19 +21,22 @@ export interface AuthorGroup {
   presets: CommunityPreset[];
 }
 
+export interface ModuleAuthorGroup {
+  author: string;
+  modules: CommunityModule[];
+}
+
 interface CacheEntry {
   groups: AuthorGroup[];
+  moduleGroups: ModuleAuthorGroup[];
   ts: number;
 }
 
-// Module-level cache so all hook instances share the same data without refetching
 let moduleCache: CacheEntry | null = null;
-let inflight: Promise<AuthorGroup[]> | null = null;
+let inflight: Promise<CacheEntry> | null = null;
 
-async function fetchGroups(): Promise<AuthorGroup[]> {
-  if (moduleCache && Date.now() - moduleCache.ts < CACHE_TTL) {
-    return moduleCache.groups;
-  }
+async function fetchAll(): Promise<CacheEntry> {
+  if (moduleCache && Date.now() - moduleCache.ts < CACHE_TTL) return moduleCache;
   if (inflight) return inflight;
 
   inflight = (async () => {
@@ -36,33 +45,52 @@ async function fetchGroups(): Promise<AuthorGroup[]> {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    const vultFiles = (data.tree || []).filter(
-      (e: { type: string; path: string }) => e.type === 'blob' && e.path.endsWith('.vult')
-    );
+    const tree: { type: string; path: string }[] = data.tree || [];
+    const vultFiles = tree.filter(e => e.type === 'blob' && e.path.endsWith('.vult'));
 
-    const map = new Map<string, CommunityPreset[]>();
+    // --- presets: top-level <author>/<name>.vult (not under modules/)
+    const presetMap = new Map<string, CommunityPreset[]>();
+    // --- modules: modules/<author>/<name>.vult
+    const modMap = new Map<string, CommunityModule[]>();
+
     for (const entry of vultFiles) {
-      const parts: string[] = entry.path.split('/');
-      const author = parts.length >= 2 ? parts[0] : 'community';
-      const filename: string = parts[parts.length - 1];
-      const name = filename.replace(/\.vult$/, '').replace(/[_-]/g, ' ');
-      if (!map.has(author)) map.set(author, []);
-      map.get(author)!.push({ name, path: entry.path, author });
+      const parts = entry.path.split('/');
+      if (parts[0] === 'modules') {
+        // modules/<author>/<name>.vult — need at least 3 parts
+        if (parts.length < 3) continue;
+        const author = parts[1];
+        const filename = parts[parts.length - 1];
+        const name = filename.replace(/\.vult$/, '').replace(/[_-]/g, ' ');
+        if (!modMap.has(author)) modMap.set(author, []);
+        modMap.get(author)!.push({ name, path: entry.path, author });
+      } else {
+        // top-level preset: <author>/<name>.vult
+        const author = parts.length >= 2 ? parts[0] : 'community';
+        const filename = parts[parts.length - 1];
+        const name = filename.replace(/\.vult$/, '').replace(/[_-]/g, ' ');
+        if (!presetMap.has(author)) presetMap.set(author, []);
+        presetMap.get(author)!.push({ name, path: entry.path, author });
+      }
     }
 
-    const groups: AuthorGroup[] = Array.from(map.entries())
+    const groups: AuthorGroup[] = Array.from(presetMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([author, presets]) => ({ author, presets }));
 
-    moduleCache = { groups, ts: Date.now() };
+    const moduleGroups: ModuleAuthorGroup[] = Array.from(modMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([author, modules]) => ({ author, modules }));
+
+    const entry: CacheEntry = { groups, moduleGroups, ts: Date.now() };
+    moduleCache = entry;
     inflight = null;
-    return groups;
+    return entry;
   })();
 
   return inflight;
 }
 
-export async function loadPresetCode(path: string): Promise<string> {
+export async function loadRepoFile(path: string): Promise<string> {
   const res = await fetch(`/api/github/repos/${REPO}/contents/${path}`);
   if (!res.ok) throw new Error(`GitHub API ${res.status}`);
   const data = await res.json();
@@ -70,8 +98,12 @@ export async function loadPresetCode(path: string): Promise<string> {
   return atob(data.content.replace(/\n/g, ''));
 }
 
+// Keep backwards-compat alias
+export const loadPresetCode = loadRepoFile;
+
 export function useCommunityPresets() {
   const [groups, setGroups] = useState<AuthorGroup[]>(moduleCache?.groups ?? []);
+  const [moduleGroups, setModuleGroups] = useState<ModuleAuthorGroup[]>(moduleCache?.moduleGroups ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastFetched, setLastFetched] = useState<Date | null>(
@@ -79,13 +111,14 @@ export function useCommunityPresets() {
   );
 
   const refresh = useCallback(async () => {
-    // Bust the module cache so next fetch is fresh
     moduleCache = null;
+    inflight = null;
     setLoading(true);
     setError(null);
     try {
-      const g = await fetchGroups();
-      setGroups(g);
+      const result = await fetchAll();
+      setGroups(result.groups);
+      setModuleGroups(result.moduleGroups);
       setLastFetched(new Date());
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load community presets');
@@ -95,21 +128,22 @@ export function useCommunityPresets() {
   }, []);
 
   useEffect(() => {
-    // Only fetch if cache is stale or empty
     if (moduleCache && Date.now() - moduleCache.ts < CACHE_TTL) {
       setGroups(moduleCache.groups);
+      setModuleGroups(moduleCache.moduleGroups);
       setLastFetched(new Date(moduleCache.ts));
       return;
     }
     setLoading(true);
-    fetchGroups()
-      .then(g => {
-        setGroups(g);
+    fetchAll()
+      .then(result => {
+        setGroups(result.groups);
+        setModuleGroups(result.moduleGroups);
         setLastFetched(new Date());
       })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed'))
       .finally(() => setLoading(false));
   }, []);
 
-  return { groups, loading, error, lastFetched, refresh };
+  return { groups, moduleGroups, loading, error, lastFetched, refresh };
 }
