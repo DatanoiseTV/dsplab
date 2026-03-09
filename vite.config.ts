@@ -2,6 +2,17 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { spawn } from 'child_process'
 import path from 'path'
+import os from 'os'
+
+const SANDBOX_WORKDIR = process.env.VULT_SANDBOX_DIR || path.join(os.tmpdir(), 'vult-sandbox');
+
+function ensureSandboxDir() {
+  const fs = require('fs');
+  if (!fs.existsSync(SANDBOX_WORKDIR)) {
+    fs.mkdirSync(SANDBOX_WORKDIR, { recursive: true });
+  }
+  return SANDBOX_WORKDIR;
+}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -10,6 +21,8 @@ export default defineConfig({
     {
       name: 'vult-compiler-api',
       configureServer(server) {
+        ensureSandboxDir();
+        
         server.middlewares.use('/api/compile', (req, res) => {
           if (req.method === 'POST') {
             let body = '';
@@ -18,11 +31,20 @@ export default defineConfig({
               try {
                 const requestData = JSON.parse(body);
                 
-                // Spawn node with 1GB stack size
+                // Spawn node with sandbox enabled
+                // VULT_SANDBOX=true enforces sandbox mode (uses internal compiler only)
+                // VULT_SANDBOX_DIR sets the work directory for temp files
                 const child = spawn('node', [
                   '--stack-size=1000000', 
                   path.join(process.cwd(), 'vult-compiler-bridge.cjs')
-                ]);
+                ], {
+                  env: {
+                    ...process.env,
+                    VULT_SANDBOX: 'true',
+                    VULT_SANDBOX_DIR: SANDBOX_WORKDIR,
+                    VULT_ALLOW_EXTERNAL: 'false'
+                  }
+                });
 
                 let output = '';
                 let error = '';
