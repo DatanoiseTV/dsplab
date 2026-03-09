@@ -644,7 +644,7 @@ const App: React.FC = () => {
 
   const handleTogglePlay = async () => {
     const ae = audioEngineRef.current;
-    if (ae.getIsPlaying()) { ae.stop(); setIsPlaying(false); }
+    if (ae.getIsPlaying()) { ae.stop(); setIsPlaying(false); setSeqPlaying(false); }
     else {
       // Create context synchronously inside click handler to appease Chrome Autoplay Policy
       ae.initContextSync();
@@ -667,6 +667,7 @@ const App: React.FC = () => {
       if (result.success) { setStatus('Running'); ae.setProbes(activeProbes); setEditorMarkers([]); }
       else { setStatus('Compile Error'); setEditorMarkers(parseVultError(result)); }
       setIsPlaying(true);
+      setSeqPlaying(true);
     }
   };
 
