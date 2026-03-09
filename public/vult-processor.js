@@ -337,22 +337,24 @@ class VultProcessor extends AudioWorkletProcessor {
         }
         this.seqState.sampleCounter--;
 
-        // CC Automation (Catmull-Rom Spline Interpolation)
+        // CC Automation (Catmull-Rom Spline Interpolation over 4 sub-steps per sequence step)
         if (this.seqState.ccTracks && this.seqState.ccTracks.length > 0) {
            if (!this.lastSentCC) this.lastSentCC = {};
            
            this.seqState.ccTracks.forEach(track => {
-              const len = this.seqState.length || 16;
-              const currentStep = this.seqState.currentStep;
+              const res = 4;
+              const len = (this.seqState.length || 16) * res;
               
-              const v0 = track.steps[(currentStep - 1 + len) % len];
-              const v1 = track.steps[currentStep];
-              const v2 = track.steps[(currentStep + 1) % len];
-              const v3 = track.steps[(currentStep + 2) % len];
+              const currentSubStepFloat = (this.seqState.currentStep * res) + (res * (1.0 - (Math.max(0, this.seqState.sampleCounter) / samplesPerTick)));
+              const currentSubStep = Math.floor(currentSubStepFloat);
+              const t = currentSubStepFloat - currentSubStep;
+              
+              const v0 = track.steps[(currentSubStep - 1 + len) % len];
+              const v1 = track.steps[currentSubStep % len];
+              const v2 = track.steps[(currentSubStep + 1) % len];
+              const v3 = track.steps[(currentSubStep + 2) % len];
               
               if (v1 !== undefined && v2 !== undefined && v0 !== undefined && v3 !== undefined) {
-                 const t = 1.0 - (Math.max(0, this.seqState.sampleCounter) / samplesPerTick);
-                 
                  const c0 = v1;
                  const c1 = 0.5 * (v2 - v0);
                  const c2 = v0 - 2.5 * v1 + 2 * v2 - 0.5 * v3;
