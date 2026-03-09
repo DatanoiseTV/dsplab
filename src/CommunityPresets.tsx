@@ -1,85 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { RefreshCw, ChevronRight, ChevronDown, User, FileCode, Download, AlertCircle } from 'lucide-react';
-
-const REPO = 'DatanoiseTV/dsplab-projects';
-const TREE_URL = `/api/github/repos/${REPO}/git/trees/main?recursive=1`;
-
-interface TreeEntry {
-  path: string;
-  type: 'blob' | 'tree';
-  sha: string;
-  size?: number;
-}
-
-interface PresetFile {
-  name: string;       // filename without .vult
-  path: string;       // full repo path
-  author: string;     // top-level folder
-  sha: string;
-}
-
-interface AuthorGroup {
-  author: string;
-  presets: PresetFile[];
-}
-
-function groupByAuthor(entries: TreeEntry[]): AuthorGroup[] {
-  const vultFiles = entries.filter(e => e.type === 'blob' && e.path.endsWith('.vult'));
-  const map = new Map<string, PresetFile[]>();
-
-  for (const entry of vultFiles) {
-    const parts = entry.path.split('/');
-    // Support root-level files under a single author folder or a community folder
-    const author = parts.length >= 2 ? parts[0] : 'root';
-    const filename = parts[parts.length - 1];
-    const name = filename.replace(/\.vult$/, '').replace(/_/g, ' ').replace(/-/g, ' ');
-
-    if (!map.has(author)) map.set(author, []);
-    map.get(author)!.push({ name, path: entry.path, author, sha: entry.sha });
-  }
-
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([author, presets]) => ({ author, presets }));
-}
+import { useCommunityPresets, loadPresetCode } from './useCommunityPresets';
 
 interface Props {
   onLoad: (code: string, name: string) => void;
 }
 
 const CommunityPresets: React.FC<Props> = ({ onLoad }) => {
-  const [groups, setGroups] = useState<AuthorGroup[]>([]);
+  const { groups, loading, error, lastFetched, refresh } = useCommunityPresets();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [lastFetched, setLastFetched] = useState<Date | null>(null);
-
-  const fetchTree = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(TREE_URL);
-      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      const grouped = groupByAuthor(data.tree || []);
-      setGroups(grouped);
-      setLastFetched(new Date());
-      // Auto-expand if only one or two authors
-      if (grouped.length <= 2) {
-        setExpanded(new Set(grouped.map(g => g.author)));
-      }
-    } catch (e: any) {
-      setError(e.message || 'Failed to load community presets');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchTree();
-  }, [fetchTree]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const toggleAuthor = (author: string) => {
     setExpanded(prev => {
@@ -90,18 +21,14 @@ const CommunityPresets: React.FC<Props> = ({ onLoad }) => {
     });
   };
 
-  const loadPreset = async (preset: PresetFile) => {
-    setLoadingFile(preset.path);
+  const handleLoad = async (path: string, name: string) => {
+    setLoadingFile(path);
+    setLoadError(null);
     try {
-      const res = await fetch(`/api/github/repos/${REPO}/contents/${preset.path}`);
-      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      // GitHub returns base64-encoded content
-      const code = atob(data.content.replace(/\n/g, ''));
-      onLoad(code, preset.name);
-    } catch (e: any) {
-      setError('Failed to load preset: ' + (e.message || ''));
+      const code = await loadPresetCode(path);
+      onLoad(code, name);
+    } catch (e: unknown) {
+      setLoadError('Failed to load: ' + (e instanceof Error ? e.message : ''));
     } finally {
       setLoadingFile(null);
     }
@@ -113,6 +40,8 @@ const CommunityPresets: React.FC<Props> = ({ onLoad }) => {
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     return d.toLocaleTimeString();
   };
+
+  const displayError = loadError || error;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -130,7 +59,7 @@ const CommunityPresets: React.FC<Props> = ({ onLoad }) => {
           )}
         </div>
         <button
-          onClick={fetchTree}
+          onClick={refresh}
           disabled={loading}
           title="Refresh"
           style={{
@@ -144,14 +73,14 @@ const CommunityPresets: React.FC<Props> = ({ onLoad }) => {
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
-        {error && (
+        {displayError && (
           <div style={{
             display: 'flex', alignItems: 'flex-start', gap: '8px',
             margin: '10px 12px', padding: '10px', borderRadius: '4px',
             background: '#2a1515', border: '1px solid #5a2020', color: '#ff6666', fontSize: '12px'
           }}>
             <AlertCircle size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
-            <span>{error}</span>
+            <span>{displayError}</span>
           </div>
         )}
 
@@ -161,7 +90,7 @@ const CommunityPresets: React.FC<Props> = ({ onLoad }) => {
           </div>
         )}
 
-        {!loading && !error && groups.length === 0 && (
+        {!loading && !displayError && groups.length === 0 && (
           <div style={{ padding: '20px 14px', color: '#444', fontSize: '12px', textAlign: 'center' }}>
             No presets found.
           </div>
@@ -195,14 +124,13 @@ const CommunityPresets: React.FC<Props> = ({ onLoad }) => {
               return (
                 <div
                   key={preset.path}
-                  onClick={() => !isLoading && loadPreset(preset)}
+                  onClick={() => !isLoading && handleLoad(preset.path, preset.name)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '8px',
                     padding: '6px 14px 6px 32px',
                     cursor: isLoading ? 'wait' : 'pointer',
                     color: isLoading ? '#555' : '#aaa',
                     transition: 'background 0.1s',
-                    borderLeft: '1px solid #1e1e1e',
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}

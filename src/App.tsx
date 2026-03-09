@@ -13,6 +13,7 @@ import Sequencer from './Sequencer';
 import type { Step } from './Sequencer';
 import { Knob } from './Knob';
 import CommunityPresets from './CommunityPresets';
+import { useCommunityPresets, loadPresetCode } from './useCommunityPresets';
 import './App.css';
 
 const PRESETS: Record<string, string> = {
@@ -477,6 +478,9 @@ const App: React.FC = () => {
   const [exportJavaPrefix, setExportJavaPrefix] = useState('com.example');
   const [exportStatus, setExportStatus] = useState('');
 
+  // Community presets (fetched from GitHub)
+  const { groups: communityGroups, loading: communityLoading } = useCommunityPresets();
+
   // UI States
   const [labHeight, setLabHeight] = useState(250);
   const [activeLabTab, setActiveLabTab] = useState<'lab' | 'seq' | 'midi'>('lab');
@@ -796,19 +800,33 @@ const App: React.FC = () => {
   return (
     <div className="app-container">
       <div className="sidebar">
-        <div className="logo" style={{ marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-          <Zap color="#ffcc00" size={24} />
-          <span style={{ fontSize: '8px', fontWeight: 'bold', color: '#ffcc00', letterSpacing: '1px' }}>VULTLAB</span>
+        <div className="logo" style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+          <Zap color="#ffcc00" size={22} />
+          <span style={{ fontSize: '8px', fontWeight: 'bold', color: '#ffcc00', letterSpacing: '1px' }}>DSPLAB</span>
         </div>
-        <div className="nav-item active" title="IDE"><Cpu size={18} /></div>
-        <div className="nav-item" title="Save" onClick={handleSave}><Save size={18} /></div>
-        <div className="nav-item" title="Download Vult" onClick={handleDownload}><Download size={18} /></div>
-        <div className={`nav-item ${showExportModal ? 'active' : ''}`} title="Export Code" onClick={() => { setShowExportModal(!showExportModal); setExportStatus(''); }}><Code2 size={18} /></div>
-        <div className={`nav-item ${showCommunity ? 'active' : ''}`} title="Community Presets" onClick={() => { setShowCommunity(!showCommunity); setShowHistory(false); setShowInspector(false); }}><Globe size={18} /></div>
-        <div className={`nav-item ${showHistory ? 'active' : ''}`} title="History" onClick={() => { setShowHistory(!showHistory); setShowInspector(false); setShowCommunity(false); }}><History size={18} /></div>
-        <div className={`nav-item ${showInspector ? 'active' : ''}`} title="State Inspector" onClick={() => { setShowInspector(!showInspector); setShowHistory(false); setShowCommunity(false); }}><Database size={18} /></div>
+        <div className="nav-item active" title="IDE">
+          <Cpu size={17} /><span className="nav-label">IDE</span>
+        </div>
+        <div className="nav-item" title="Save" onClick={handleSave}>
+          <Save size={17} /><span className="nav-label">Save</span>
+        </div>
+        <div className="nav-item" title="Download .vult source" onClick={handleDownload}>
+          <Download size={17} /><span className="nav-label">Source</span>
+        </div>
+        <div className={`nav-item ${showExportModal ? 'active' : ''}`} title="Export Code" onClick={() => { setShowExportModal(!showExportModal); setExportStatus(''); }}>
+          <Code2 size={17} /><span className="nav-label">Export</span>
+        </div>
+        <div className={`nav-item ${showCommunity ? 'active' : ''}`} title="Community Presets" onClick={() => { setShowCommunity(!showCommunity); setShowHistory(false); setShowInspector(false); }}>
+          <Globe size={17} /><span className="nav-label">Community</span>
+        </div>
+        <div className={`nav-item ${showHistory ? 'active' : ''}`} title="Version History" onClick={() => { setShowHistory(!showHistory); setShowInspector(false); setShowCommunity(false); }}>
+          <History size={17} /><span className="nav-label">History</span>
+        </div>
+        <div className={`nav-item ${showInspector ? 'active' : ''}`} title="State Inspector" onClick={() => { setShowInspector(!showInspector); setShowHistory(false); setShowCommunity(false); }}>
+          <Database size={17} /><span className="nav-label">Inspect</span>
+        </div>
         <div className="spacer" />
-        <div className="midi-status-circle" title={midiStatus} style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#00ff00', marginBottom: '20px' }} />
+        <div className="midi-status-circle" title={midiStatus} style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#00ff00', marginBottom: '20px' }} />
       </div>
 
       <div className="main-content">
@@ -819,7 +837,37 @@ const App: React.FC = () => {
             {isPlaying ? 'STOP' : 'RUN'}
           </button>
           <div className="divider" />
-          <div className="control-group"><span className="label">PRESET</span><select value="" onChange={(e) => loadPreset(e.target.value)}><option value="" disabled>Load...</option>{Object.keys(PRESETS).map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+          <div className="control-group">
+            <span className="label">PRESET</span>
+            <select value="" onChange={async (e) => {
+              const val = e.target.value;
+              if (!val) return;
+              if (val.startsWith('community:')) {
+                const path = val.slice('community:'.length);
+                try {
+                  const code = await loadPresetCode(path);
+                  const name = path.split('/').pop()?.replace(/\.vult$/, '').replace(/[_-]/g, ' ') ?? 'preset';
+                  handleLoadCode(code);
+                  setProjectName(name);
+                } catch { setStatus('Load Error'); }
+              } else {
+                loadPreset(val);
+              }
+            }}>
+              <option value="" disabled>Load...</option>
+              <optgroup label="Built-in">
+                {Object.keys(PRESETS).map(p => <option key={p} value={p}>{p}</option>)}
+              </optgroup>
+              {communityGroups.length > 0 && communityGroups.map(group => (
+                <optgroup key={group.author} label={`Community — ${group.author}`}>
+                  {group.presets.map(p => (
+                    <option key={p.path} value={`community:${p.path}`} style={{ textTransform: 'capitalize' }}>{p.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+              {communityLoading && <optgroup label="Community"><option disabled>Loading...</option></optgroup>}
+            </select>
+          </div>
           <div className="control-group"><span className="label">MIDI</span><select value={selectedMidiInput} onChange={(e) => { setSelectedMidiInput(e.target.value); midiControllerRef.current?.setInput(e.target.value === 'all' ? null : e.target.value); }}><option value="all">All</option>{midiInputs.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></div>
           <div className="control-group">
             <span className="label">SAVED</span>
