@@ -14,14 +14,6 @@ const CommunityPresetsModal: React.FC<CommunityPresetsModalProps> = ({ onClose, 
   const [filter, setFilter] = useState('');
   const [loadingPreset, setLoadingPreset] = useState<string | null>(null);
 
-  const filteredPresets = communityGroups.flatMap(group => 
-    group.presets.filter((p: any) => 
-      p.name.toLowerCase().includes(filter.toLowerCase()) || 
-      p.author.toLowerCase().includes(filter.toLowerCase()) ||
-      p.meta?.description?.toLowerCase().includes(filter.toLowerCase())
-    ).map((p: any) => ({ ...p, author: group.author }))
-  ).sort((a, b) => a.name.localeCompare(b.name));
-
   const handleLoad = async (path: string, name: string) => {
     setLoadingPreset(path);
     try {
