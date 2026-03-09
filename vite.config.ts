@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { spawn } from 'child_process'
+import https from 'https'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
@@ -22,7 +23,54 @@ export default defineConfig({
       name: 'vult-compiler-api',
       configureServer(server) {
         ensureSandboxDir();
-        
+
+        // Proxy GitHub API requests to avoid CORS and add a server-side cache
+        // Path: /api/github/** -> https://api.github.com/**
+        const ghCache = new Map<string, { data: string; ts: number }>();
+        const GH_CACHE_TTL = 60_000; // 1 minute
+
+        server.middlewares.use('/api/github', (req, res) => {
+          const ghPath = req.url || '/';
+          const cached = ghCache.get(ghPath);
+          if (cached && Date.now() - cached.ts < GH_CACHE_TTL) {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('X-Cache', 'HIT');
+            res.end(cached.data);
+            return;
+          }
+
+          const options = {
+            hostname: 'api.github.com',
+            path: ghPath,
+            method: 'GET',
+            headers: {
+              'User-Agent': 'DSPLab/1.0',
+              'Accept': 'application/vnd.github.v3+json',
+              ...(process.env.GITHUB_TOKEN ? { Authorization: `token ${process.env.GITHUB_TOKEN}` } : {})
+            }
+          };
+
+          const upstream = https.request(options, (upRes) => {
+            let body = '';
+            upRes.on('data', chunk => { body += chunk; });
+            upRes.on('end', () => {
+              if (upRes.statusCode === 200) {
+                ghCache.set(ghPath, { data: body, ts: Date.now() });
+              }
+              res.setHeader('Content-Type', 'application/json');
+              res.statusCode = upRes.statusCode || 200;
+              res.end(body);
+            });
+          });
+
+          upstream.on('error', (err) => {
+            res.statusCode = 502;
+            res.end(JSON.stringify({ error: 'GitHub proxy error: ' + err.message }));
+          });
+
+          upstream.end();
+        });
+
         server.middlewares.use('/api/compile', (req, res) => {
           if (req.method === 'POST') {
             let body = '';

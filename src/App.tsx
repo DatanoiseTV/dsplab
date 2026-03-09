@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Square, Cpu, Zap, Activity, Save, Download, Sliders, AudioWaveform, Code2, Database, History, Music, Keyboard } from 'lucide-react';
+import { Play, Square, Cpu, Zap, Activity, Save, Download, Sliders, AudioWaveform, Code2, Database, History, Music, Keyboard, Globe } from 'lucide-react';
 import { AudioEngine } from './AudioEngine';
 import type { InputSource, SourceType } from './AudioEngine';
 import { MIDIController } from './MIDIController';
@@ -12,6 +12,7 @@ import MultiScopeView from './MultiScopeView';
 import Sequencer from './Sequencer';
 import type { Step } from './Sequencer';
 import { Knob } from './Knob';
+import CommunityPresets from './CommunityPresets';
 import './App.css';
 
 const PRESETS: Record<string, string> = {
@@ -470,6 +471,7 @@ const App: React.FC = () => {
   const [midiInputs, setMidiInputs] = useState<any[]>([]);
   const [selectedMidiInput, setSelectedMidiInput] = useState<string>('all');
 
+  const [showCommunity, setShowCommunity] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportTarget, setExportTarget] = useState('c');
   const [exportJavaPrefix, setExportJavaPrefix] = useState('com.example');
@@ -802,8 +804,9 @@ const App: React.FC = () => {
         <div className="nav-item" title="Save" onClick={handleSave}><Save size={18} /></div>
         <div className="nav-item" title="Download Vult" onClick={handleDownload}><Download size={18} /></div>
         <div className={`nav-item ${showExportModal ? 'active' : ''}`} title="Export Code" onClick={() => { setShowExportModal(!showExportModal); setExportStatus(''); }}><Code2 size={18} /></div>
-        <div className={`nav-item ${showHistory ? 'active' : ''}`} title="History" onClick={() => { setShowHistory(!showHistory); setShowInspector(false); }}><History size={18} /></div>
-        <div className={`nav-item ${showInspector ? 'active' : ''}`} title="State Inspector" onClick={() => { setShowInspector(!showInspector); setShowHistory(false); }}><Database size={18} /></div>
+        <div className={`nav-item ${showCommunity ? 'active' : ''}`} title="Community Presets" onClick={() => { setShowCommunity(!showCommunity); setShowHistory(false); setShowInspector(false); }}><Globe size={18} /></div>
+        <div className={`nav-item ${showHistory ? 'active' : ''}`} title="History" onClick={() => { setShowHistory(!showHistory); setShowInspector(false); setShowCommunity(false); }}><History size={18} /></div>
+        <div className={`nav-item ${showInspector ? 'active' : ''}`} title="State Inspector" onClick={() => { setShowInspector(!showInspector); setShowHistory(false); setShowCommunity(false); }}><Database size={18} /></div>
         <div className="spacer" />
         <div className="midi-status-circle" title={midiStatus} style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#00ff00', marginBottom: '20px' }} />
       </div>
@@ -964,6 +967,12 @@ const App: React.FC = () => {
                     ))}
                   </div>
                 </div>
+              ) : showCommunity ? (
+                <CommunityPresets onLoad={(code, name) => {
+                  handleLoadCode(code);
+                  setProjectName(name);
+                  setShowCommunity(false);
+                }} />
               ) : showInspector ? (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div style={{ flex: 1, minHeight: 0 }}>
