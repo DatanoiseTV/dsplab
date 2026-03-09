@@ -3,6 +3,7 @@ import react             from '@vitejs/plugin-react'
 import { spawn }         from 'child_process'
 import https             from 'https'
 import http              from 'http'
+import { Readable }      from 'stream'
 import path              from 'path'
 import os                from 'os'
 import fs                from 'fs'
@@ -135,7 +136,6 @@ async function refreshRepo(token?: string): Promise<void> {
         extract.on('error', reject);
         gunzip.on('error', reject);
 
-        const { Readable } = require('stream');
         Readable.from(res.body).pipe(gunzip).pipe(extract);
       });
     } catch (e) {
