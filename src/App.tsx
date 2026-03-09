@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Square, Cpu, Zap, Activity, Save, Download, Sliders, AudioWaveform, Code2, Database, History, Music, Keyboard, Globe } from 'lucide-react';
+import { Play, Square, Cpu, Zap, Activity, Save, Download, Sliders, AudioWaveform, Code2, History, Music, Keyboard, Globe, Search } from 'lucide-react';
 import { AudioEngine } from './AudioEngine';
 import type { InputSource, SourceType } from './AudioEngine';
 import { MIDIController } from './MIDIController';
@@ -825,7 +825,7 @@ const App: React.FC = () => {
           <History size={17} /><span className="nav-label">History</span>
         </div>
         <div className={`nav-item ${showInspector ? 'active' : ''}`} title="State Inspector" onClick={() => { setShowInspector(!showInspector); setShowHistory(false); setShowCommunity(false); }}>
-          <Database size={17} /><span className="nav-label">Inspect</span>
+          <Search size={17} /><span className="nav-label">Monitoring</span>
         </div>
         <div className="spacer" />
         <div className="midi-status-circle" title={midiStatus} style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#00ff00', marginBottom: '20px' }} />
