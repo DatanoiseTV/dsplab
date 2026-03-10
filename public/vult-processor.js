@@ -453,10 +453,30 @@ class VultProcessor extends AudioWorkletProcessor {
             outR = outL;
           } else {
             // Vult JS target returns tuples by mutating the context and returning undefined
-            let ctx = this.vultInstance.context || this.vultInstance._ctx;
-            if (ctx && ctx.process_ret_0 !== undefined) {
-              outL = ctx.process_ret_0 || 0;
-              outR = ctx.process_ret_1 !== undefined ? ctx.process_ret_1 : outL;
+            // The property names depend on the function name, e.g. liveProcess_ret_0, process_ret_0
+            let ctx = this.vultInstance.context || this.vultInstance._ctx || this.vultInstance;
+            if (ctx) {
+              // Cache the return keys on first discovery
+              if (!this.vultInstance._retKey0) {
+                for (const key in ctx) {
+                  if (key.endsWith('_ret_0')) {
+                    this.vultInstance._retKey0 = key;
+                    this.vultInstance._retKey1 = key.replace('_ret_0', '_ret_1');
+                    this.vultInstance._retCtx = ctx;
+                    break;
+                  }
+                }
+                if (!this.vultInstance._retKey0 && ctx.ret_0 !== undefined) {
+                  this.vultInstance._retKey0 = 'ret_0';
+                  this.vultInstance._retKey1 = 'ret_1';
+                  this.vultInstance._retCtx = ctx;
+                }
+              }
+              if (this.vultInstance._retKey0) {
+                const rc = this.vultInstance._retCtx;
+                outL = rc[this.vultInstance._retKey0] || 0;
+                outR = rc[this.vultInstance._retKey1] !== undefined ? rc[this.vultInstance._retKey1] : outL;
+              }
             }
           }
           
