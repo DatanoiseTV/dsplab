@@ -596,19 +596,19 @@ const App: React.FC = () => {
           } else if (preference === 'ask') {
             setPendingRestore({ code: lastSession, name: lastProjectName || 'My Vult Project' });
             setShowRestoreModal(true);
-            // Default to vs80 until they decide
-            const defaultCode = PRESETS["vs80"];
+            // Default to Minimal until they decide
+            const defaultCode = PRESETS["Minimal"];
             setCode(defaultCode);
             setInputs(parseVultInputs(defaultCode));
             setCcLabels(parseVultCCs(defaultCode));
           } else {
-            const defaultCode = PRESETS["vs80"];
+            const defaultCode = PRESETS["Minimal"];
             setCode(defaultCode);
             setInputs(parseVultInputs(defaultCode));
             setCcLabels(parseVultCCs(defaultCode));
           }
         } else {
-          const defaultCode = PRESETS["vs80"];
+          const defaultCode = PRESETS["Minimal"];
           setCode(defaultCode);
           setInputs(parseVultInputs(defaultCode));
           setCcLabels(parseVultCCs(defaultCode));
@@ -1437,6 +1437,9 @@ const App: React.FC = () => {
               <button 
                 className="btn-restore-secondary"
                 onClick={() => {
+                  const freshCode = PRESETS["Minimal"];
+                  handleLoadCode(freshCode);
+                  setProjectName("New Vult Project");
                   setShowRestoreModal(false);
                 }}
               >
