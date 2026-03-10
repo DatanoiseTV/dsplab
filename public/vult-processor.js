@@ -233,6 +233,21 @@ class VultProcessor extends AudioWorkletProcessor {
         if (!VultConstructor) throw new Error("Vult process class not found in compiled JS");
 
         const instance = new VultConstructor();
+
+        // Fix Vult compiler arity bug for mono returns:
+        // liveProcess(input) calls Live_process(context, input) but
+        // for mono returns, Live_process(input) only takes 1 arg (no ctx).
+        // Detect this and create a corrected wrapper.
+        if (instance.Live_process && instance.liveProcess) {
+          const innerArity = instance.Live_process.length;  // expected params
+          if (innerArity === 1) {
+            // Mono: Live_process(input) — no context param
+            instance.liveProcess = function(input) {
+              return instance.Live_process(input);
+            };
+          }
+        }
+
         instance._processFn = instance.liveProcess || instance.process;
         const initFn = instance.liveDefault || instance.default;
         if (typeof initFn === 'function') initFn.call(instance);
