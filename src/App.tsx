@@ -477,6 +477,9 @@ const App: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [codeHistory, setCodeHistory] = useState<{timestamp: number, code: string, msg: string}[]>([]);
   
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<{ code: string; name: string } | null>(null);
+  
   const [seqSteps, setSeqSteps] = useState<Step[]>(Array.from({ length: 32 }, () => ({ active: false, notes: [], accent: false, slide: false })));
   const [seqBpm, setSeqBpm] = useState(120);
   const [seqPlaying, setSeqPlaying] = useState(false);
@@ -582,17 +585,34 @@ const App: React.FC = () => {
         const historyRaw = localStorage.getItem('vult_code_history');
         if (historyRaw) setCodeHistory(JSON.parse(historyRaw));
         
-        let startCode = PRESETS["vs80"];
-        if (lastSession && lastSession.trim().length > 100) { 
-          startCode = lastSession; 
-          setCode(lastSession); 
-        } else {
-          setCode(PRESETS["vs80"]);
-        }
+        const preference = localStorage.getItem('vult_restore_preference') || 'ask';
         
-        setInputs(parseVultInputs(startCode));
-        setCcLabels(parseVultCCs(startCode));
-        if (lastProjectName) setProjectName(lastProjectName);
+        if (lastSession && lastSession.trim().length > 10) {
+          if (preference === 'always') {
+            setCode(lastSession);
+            setInputs(parseVultInputs(lastSession));
+            setCcLabels(parseVultCCs(lastSession));
+            if (lastProjectName) setProjectName(lastProjectName);
+          } else if (preference === 'ask') {
+            setPendingRestore({ code: lastSession, name: lastProjectName || 'My Vult Project' });
+            setShowRestoreModal(true);
+            // Default to vs80 until they decide
+            const defaultCode = PRESETS["vs80"];
+            setCode(defaultCode);
+            setInputs(parseVultInputs(defaultCode));
+            setCcLabels(parseVultCCs(defaultCode));
+          } else {
+            const defaultCode = PRESETS["vs80"];
+            setCode(defaultCode);
+            setInputs(parseVultInputs(defaultCode));
+            setCcLabels(parseVultCCs(defaultCode));
+          }
+        } else {
+          const defaultCode = PRESETS["vs80"];
+          setCode(defaultCode);
+          setInputs(parseVultInputs(defaultCode));
+          setCcLabels(parseVultCCs(defaultCode));
+        }
         
         const projectsRaw = localStorage.getItem('vult_projects');
         if (projectsRaw) setSavedProjects(Object.keys(JSON.parse(projectsRaw)));
@@ -1390,6 +1410,53 @@ const App: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Restore Session Modal */}
+      {showRestoreModal && pendingRestore && (
+        <div className="modal-overlay restore-session-overlay">
+          <div className="modal-content restore-modal glass-morphism">
+            <div className="restore-icon-container">
+              <PackageOpen size={40} color="var(--accent-primary)" />
+            </div>
+            <h2>Restore Session?</h2>
+            <p>We found an unsaved session from your last visit: <strong>{pendingRestore.name}</strong>. Would you like to continue where you left off?</p>
+            
+            <div className="restore-actions">
+              <button 
+                className="btn-restore-primary"
+                onClick={() => {
+                  setCode(pendingRestore.code);
+                  setProjectName(pendingRestore.name);
+                  setInputs(parseVultInputs(pendingRestore.code));
+                  setCcLabels(parseVultCCs(pendingRestore.code));
+                  setShowRestoreModal(false);
+                }}
+              >
+                Restore Session
+              </button>
+              <button 
+                className="btn-restore-secondary"
+                onClick={() => {
+                  setShowRestoreModal(false);
+                }}
+              >
+                Start Fresh
+              </button>
+            </div>
+            
+            <label className="dont-ask-checkbox">
+              <input 
+                type="checkbox" 
+                onChange={(e) => {
+                  const pref = e.target.checked ? 'always' : 'ask';
+                  localStorage.setItem('vult_restore_preference', pref);
+                }}
+              />
+              <span>Don't ask me again (Always restore)</span>
+            </label>
+          </div>
+        </div>
+      )}
 
       <LLMPane 
         currentCode={code} 

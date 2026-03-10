@@ -892,3 +892,110 @@
 .drum-cell.active-step {
   border: 1px solid #7ec8ff !important;
 }
+/* RESTORE SESSION MODAL */
+.restore-session-overlay {
+  z-index: 3000 !important;
+  background: rgba(0, 0, 0, 0.9) !important;
+}
+
+.restore-modal {
+  width: 420px !important;
+  padding: 40px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+  gap: 20px !important;
+}
+
+.glass-morphism {
+  background: rgba(26, 26, 26, 0.7) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+}
+
+.restore-icon-container {
+  width: 80px;
+  height: 80px;
+  background: rgba(var(--accent-primary-rgb), 0.1);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  border: 1px solid rgba(var(--accent-primary-rgb), 0.2);
+}
+
+.restore-modal h2 {
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0;
+  color: #fff;
+}
+
+.restore-modal p {
+  color: #888;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.restore-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.btn-restore-primary {
+  background: var(--accent-primary);
+  color: #000;
+  border: none;
+  padding: 14px;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-restore-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(var(--accent-primary-rgb), 0.3);
+}
+
+.btn-restore-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  color: #888;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-restore-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.dont-ask-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.dont-ask-checkbox input {
+  accent-color: var(--accent-primary);
+}
