@@ -11,6 +11,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({ getSpectrumData, getPeakFre
   const [peaks, setPeaks] = useState<{ energy: number; frequency: number }[]>([]);
   const peaksRef = useRef<{ energy: number; frequency: number }[]>([]);
   const dimensionsRef = useRef({ width: 800, height: 150, dpr: 1 });
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -106,6 +107,25 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({ getSpectrumData, getPeakFre
         ctx.lineTo(width, height);
         ctx.fill();
 
+        // Crosshair
+        if (mousePos) {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          
+          ctx.beginPath();
+          ctx.moveTo(mousePos.x, 0);
+          ctx.lineTo(mousePos.x, height);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(0, mousePos.y);
+          ctx.lineTo(width, mousePos.y);
+          ctx.stroke();
+          
+          ctx.setLineDash([]);
+        }
+
         // Draw circles on live peaks (every frame — fast tracking)
         const livePeaks = getPeakFrequencies(3);
         livePeaks.forEach(p => {
@@ -196,7 +216,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({ getSpectrumData, getPeakFre
 
     animationFrame = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animationFrame);
-  }, [getSpectrumData, getPeakFrequencies]);
+  }, [getSpectrumData, getPeakFrequencies, mousePos]);
 
   const [copied, setCopied] = useState(false);
 
@@ -209,14 +229,57 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({ getSpectrumData, getPeakFre
     });
   }, [peaks]);
 
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setMousePos({ x, y });
+  };
+
+  const currentFreq = mousePos ? (() => {
+    const { width } = dimensionsRef.current;
+    const normX = mousePos.x / width;
+    const minLogFreq = Math.log10(20);
+    const maxLogFreq = Math.log10(20000);
+    const logRange = maxLogFreq - minLogFreq;
+    const logFreq = minLogFreq + (normX * logRange);
+    const freq = Math.pow(10, logFreq);
+    return freq < 1000 ? `${Math.round(freq)} Hz` : `${(freq / 1000).toFixed(2)} kHz`;
+  })() : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', border: '1px solid #333', background: '#000', borderRadius: '8px', overflow: 'hidden' }}>
       <div style={{ padding: '6px 12px', borderBottom: '1px solid #222', background: '#080808', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <Activity size={12} color="#00c8ff" />
         <span style={{ fontSize: '10px', color: '#00c8ff', fontWeight: 'bold', letterSpacing: '0.5px' }}>SPECTRUM</span>
       </div>
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: '60px' }}>
-        <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+      <div 
+        style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: '60px', cursor: 'crosshair' }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setMousePos(null)}
+      >
+        <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
+        
+        {mousePos && (
+          <div style={{
+            position: 'absolute',
+            left: Math.min(mousePos.x + 10, dimensionsRef.current.width - 70),
+            top: Math.max(0, mousePos.y - 25),
+            background: 'rgba(0,0,0,0.85)',
+            border: '1px solid #444',
+            borderRadius: '4px',
+            padding: '2px 6px',
+            pointerEvents: 'none',
+            fontSize: '10px',
+            color: '#00ffcc',
+            fontWeight: 'bold',
+            fontFamily: 'monospace',
+            zIndex: 10,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.5)'
+          }}>
+            {currentFreq}
+          </div>
+        )}
       </div>
       <div style={{ padding: '6px 12px', borderTop: '1px solid #222', background: '#080808', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: '16px' }}>
