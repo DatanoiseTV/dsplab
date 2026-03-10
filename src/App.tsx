@@ -1481,11 +1481,7 @@ const App: React.FC = () => {
       />
 
       {showExportModal && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 1000
-        }} onClick={(e) => { if (e.target === e.currentTarget) setShowExportModal(false); }}>
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowExportModal(false); }}>
           <div style={{
             background: '#1a1a1a', border: '1px solid #333', borderRadius: '6px',
             padding: '24px', width: '340px', display: 'flex', flexDirection: 'column', gap: '16px'
