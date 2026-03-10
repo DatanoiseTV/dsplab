@@ -1274,16 +1274,16 @@ const App: React.FC = () => {
             )}
             <div className="side-panel" style={{ display: isMobile && mobileView !== 'panels' ? 'none' : 'flex', width: isMobile ? '100%' : `${sidePanelWidth}px` }}>
             <div className="scope-section">
-              <div style={{ height: '200px', flexShrink: 0 }}>
+              <div style={{ flex: '1 0 180px', minHeight: '180px' }}>
                 <ScopeView getScopeData={() => audioEngineRef.current.getScopeData()} getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null} probes={activeProbes} />
               </div>
-              <div style={{ height: '150px', flexShrink: 0, marginTop: '8px' }}>
+              <div style={{ flex: '0 0 120px', height: '120px' }}>
                 <SpectrumView 
                   getSpectrumData={() => audioEngineRef.current.getSpectrumData()} 
                   getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)} 
                 />
               </div>
-              <div style={{ flexShrink: 0, marginTop: '8px' }}>
+              <div style={{ flex: '0 0 auto' }}>
                 <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />
               </div>
             </div>
