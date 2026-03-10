@@ -195,56 +195,52 @@ const ScopeView: React.FC<ScopeViewProps> = ({ getScopeData, getProbedData, prob
   }, [getScopeData, getProbedData, probes, triggerMode, scopeMode, threshold, gain, zoom]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: '250px', width: '100%', border: '1px solid #333', background: '#000', borderRadius: '8px', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', border: '1px solid #333', background: '#000', borderRadius: '8px', overflow: 'hidden' }}>
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 }}>
         <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
       </div>
       
       <div style={{ 
-        display: 'flex', alignItems: 'center', height: '64px', borderTop: '1px solid #222',
-        gap: '20px', background: '#080808', padding: '0 16px', width: '100%'
+        display: 'flex', alignItems: 'center', height: '42px', borderTop: '1px solid #222',
+        gap: '12px', background: '#080808', padding: '0 12px', width: '100%'
       }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ fontSize: '9px', color: '#888', fontWeight: 'bold', letterSpacing: '0.5px' }}>SYNC</span>
-          <select value={triggerMode} onChange={(e) => setTriggerMode(e.target.value as TriggerMode)} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', outline: 'none', cursor: 'pointer', padding: '2px 6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '8px', color: '#666', fontWeight: 'bold' }}>SYNC</span>
+          <select value={triggerMode} onChange={(e) => setTriggerMode(e.target.value as TriggerMode)} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '9px', fontWeight: 'bold', borderRadius: '3px', padding: '1px 4px' }}>
             <option value="NONE">NONE</option>
             <option value="AUTO">AUTO</option>
           </select>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ fontSize: '9px', color: '#888', fontWeight: 'bold', letterSpacing: '0.5px' }}>MODE</span>
-          <select value={scopeMode} onChange={(e) => setScopeMode(e.target.value as ScopeMode)} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', outline: 'none', cursor: 'pointer', padding: '2px 6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '8px', color: '#666', fontWeight: 'bold' }}>MODE</span>
+          <select value={scopeMode} onChange={(e) => setScopeMode(e.target.value as ScopeMode)} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '9px', fontWeight: 'bold', borderRadius: '3px', padding: '1px 4px' }}>
             <option value="L/R">L/R</option>
             <option value="X/Y">X/Y</option>
           </select>
         </div>
-        <div style={{ width: '1px', height: '32px', background: '#222' }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ fontSize: '9px', color: '#888', fontWeight: 'bold', letterSpacing: '0.5px' }}>GAIN</span>
-          <select value={gain} onChange={(e) => setGain(parseFloat(e.target.value))} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', outline: 'none', cursor: 'pointer', padding: '2px 6px' }}>
-            <option value={0.5}>0.5x</option>
-            <option value={1}>1.0x</option>
-            <option value={2}>2.0x</option>
-            <option value={5}>5.0x</option>
-            <option value={10}>10.0x</option>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '8px', color: '#666', fontWeight: 'bold' }}>GAIN</span>
+          <select value={gain} onChange={(e) => setGain(parseFloat(e.target.value))} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '9px', fontWeight: 'bold', borderRadius: '3px', padding: '1px 4px' }}>
+            <option value={0.5}>0.5</option>
+            <option value={1}>1.0</option>
+            <option value={2}>2.0</option>
+            <option value={5}>5.0</option>
           </select>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ fontSize: '9px', color: '#888', fontWeight: 'bold', letterSpacing: '0.5px' }}>TIME</span>
-          <select value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', outline: 'none', cursor: 'pointer', padding: '2px 6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '8px', color: '#666', fontWeight: 'bold' }}>TIME</span>
+          <select value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '9px', fontWeight: 'bold', borderRadius: '3px', padding: '1px 4px' }}>
             <option value={0.5}>x0.5</option>
             <option value={1}>x1</option>
             <option value={2}>x2</option>
             <option value={5}>x5</option>
-            <option value={10}>x10</option>
           </select>
         </div>
         {triggerMode === 'AUTO' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span style={{ fontSize: '9px', color: '#888', fontWeight: 'bold', letterSpacing: '0.5px' }}>THR</span>
-            <select value={threshold} onChange={(e) => setThreshold(parseFloat(e.target.value))} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', outline: 'none', cursor: 'pointer', padding: '2px 6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '8px', color: '#666', fontWeight: 'bold' }}>THR</span>
+            <select value={threshold} onChange={(e) => setThreshold(parseFloat(e.target.value))} style={{ background: '#111', border: '1px solid #333', color: '#00ff00', fontSize: '9px', fontWeight: 'bold', borderRadius: '3px', padding: '1px 4px' }}>
               <option value={0.0}>0.0</option>
-              <option value={0.1}>0.1</option>
               <option value={0.2}>0.2</option>
               <option value={0.5}>0.5</option>
             </select>
