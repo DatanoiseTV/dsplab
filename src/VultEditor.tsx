@@ -110,9 +110,13 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
   }, [markers, diffMode]);
 
   const setupMonaco = (monaco: Monaco) => {
-    if (monaco.languages.getLanguages().some((l: any) => l.id === 'vult')) return;
+    if ((window as any).__vult_monaco_setup_v2) return;
+    (window as any).__vult_monaco_setup_v2 = true;
 
-    monaco.languages.register({ id: 'vult' });
+    if (!monaco.languages.getLanguages().some((l: any) => l.id === 'vult')) {
+      monaco.languages.register({ id: 'vult' });
+    }
+
     monaco.languages.setLanguageConfiguration('vult', {
       comments: {
         lineComment: '//',
@@ -142,18 +146,133 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
         decreaseIndentPattern: /^\s*\}/,
       },
     });
+
+    const vultKeywords = ['fun', 'mem', 'val', 'if', 'else', 'return', 'true', 'false', 'real', 'int', 'bool'];
+    const vultStdlib: Record<string, { desc: string, snippet: string }> = {
+      'sin': { desc: 'Sine function', snippet: 'sin(${1:x})' },
+      'cos': { desc: 'Cosine function', snippet: 'cos(${1:x})' },
+      'tan': { desc: 'Tangent function', snippet: 'tan(${1:x})' },
+      'tanh': { desc: 'Hyperbolic tangent function', snippet: 'tanh(${1:x})' },
+      'exp': { desc: 'Exponential function', snippet: 'exp(${1:x})' },
+      'pow': { desc: 'Power function', snippet: 'pow(${1:base}, ${2:exp})' },
+      'log': { desc: 'Natural logarithm', snippet: 'log(${1:x})' },
+      'log10': { desc: 'Base-10 logarithm', snippet: 'log10(${1:x})' },
+      'abs': { desc: 'Absolute value function', snippet: 'abs(${1:x})' },
+      'min': { desc: 'Minimum of two values', snippet: 'min(${1:a}, ${2:b})' },
+      'max': { desc: 'Maximum of two values', snippet: 'max(${1:a}, ${2:b})' },
+      'clip': { desc: 'Clamp value between min and max', snippet: 'clip(${1:x}, ${2:min}, ${3:max})' },
+      'random': { desc: 'Returns uniformly distributed pseudo-random value', snippet: 'random()' },
+      'noise': { desc: 'Generates white noise (-1.0 to 1.0)', snippet: 'noise()' },
+      'samplerate': { desc: 'Returns the current context sample rate', snippet: 'samplerate()' },
+    };
+
     monaco.languages.setMonarchTokensProvider('vult', {
+      keywords: [
+        'fun', 'mem', 'val', 'if', 'else', 'then', 'return', 'true', 'false', 'and', 'not', 'or', 'external', 'type'
+      ],
+      typeKeywords: [
+        'real', 'int', 'bool'
+      ],
+      operators: [
+        '=', '>', '<', '!', '==', '<=', '>=', '!=',
+        '&&', '||', '+', '-', '*', '/', '%',
+        '+=', '-=', '*=', '/='
+      ],
+      symbols:  /[=><!&|+\-*\/%]+/,
       tokenizer: {
         root: [
-          [/\/\/.*$/,                                      'comment'],
-          [/\b(fun|mem|val|if|else|then|return|true|false|real|int|bool|and|not|or)\b/, 'keyword'],
-          [/\b\d+(\.\d+)?\b/,                             'number'],
-          [/[{}()[\],;]/,                                  'delimiter'],
-          [/[+\-*/%=<>!&|]/,                               'operator'],
-          [/[a-zA-Z_]\w*/,                                 'variable'],
+          [/(fun)(\s+)([a-zA-Z_]\w*)/, ['keyword', 'white', 'keyword.function']],
+          [/([a-zA-Z_]\w*)(\s*)(?=\()/, 'keyword.function'],
+          [/[a-zA-Z_]\w*/, { cases: { 
+            '@typeKeywords': 'type',
+            '@keywords': 'keyword',
+            '@default': 'variable' 
+          } }],
+          { include: '@whitespace' },
+          [/[{}()\[\]]/, '@brackets'],
+          [/@symbols/, { cases: { '@operators': 'operator', '@default': '' } }],
+          [/\b\d+(\.\d+)?([eE][\-+]?\d+)?\b/, 'number'],
+          [/[;,.]/, 'delimiter'],
+        ],
+        whitespace: [
+          [/[ \t\r\n]+/, 'white'],
+          [/\/\*/,       'comment', '@comment' ],
+          [/\/\/.*$/,    'comment'],
+        ],
+        comment: [
+          [/[^\/*]+/, 'comment' ],
+          [/\/\*/,    'comment', '@push' ],
+          ["\\*/",    'comment', '@pop'  ],
+          [/[\/*]/,   'comment' ]
         ],
       },
     });
+
+    monaco.languages.registerCompletionItemProvider('vult', {
+      provideCompletionItems: (model: import('monaco-editor').editor.ITextModel, position: import('monaco-editor').Position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn
+        };
+
+        const suggestions = [];
+
+        for (const kw of vultKeywords) {
+          suggestions.push({
+            label: kw,
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: kw,
+            range: range
+          });
+        }
+
+        for (const [fn, data] of Object.entries(vultStdlib)) {
+          suggestions.push({
+            label: fn,
+            kind: monaco.languages.CompletionItemKind.Function,
+            documentation: data.desc,
+            insertText: data.snippet,
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range: range
+          });
+        }
+
+        const textUntilPosition = model.getValue();
+        const words = Array.from(new Set(textUntilPosition.match(/[a-zA-Z_]\w*/g) || []));
+        for (const w of words) {
+          if (w && !vultKeywords.includes(w) && !vultStdlib[w]) {
+            suggestions.push({
+              label: w,
+              kind: monaco.languages.CompletionItemKind.Text,
+              insertText: w,
+              range: range
+            });
+          }
+        }
+
+        return { suggestions };
+      }
+    });
+
+    monaco.languages.registerHoverProvider('vult', {
+      provideHover: (model: import('monaco-editor').editor.ITextModel, position: import('monaco-editor').Position) => {
+        const word = model.getWordAtPosition(position);
+        if (word && vultStdlib[word.word]) {
+          return {
+            range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+            contents: [
+              { value: `**${word.word}**` },
+              { value: vultStdlib[word.word].desc }
+            ]
+          };
+        }
+        return null;
+      }
+    });
+
   };
 
   // Helper: get selected text, or the whole current function, or whole file

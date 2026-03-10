@@ -506,6 +506,7 @@ const App: React.FC = () => {
   const audioEngineRef = useRef<AudioEngine>(new AudioEngine());
   const midiControllerRef = useRef<MIDIController | null>(null);
   const skipNextUpdateRef = useRef(false);
+  const codeDebounceTimerRef = useRef<any>(null);
   const vultEditorRef = useRef<VultEditorHandle>(null);
 
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
@@ -727,11 +728,26 @@ const App: React.FC = () => {
     setCcLabels(parseVultCCs(value));
     const newInputs = parseVultInputs(value);
     setInputs(prev => (prev.length === newInputs.length && prev.every((v, i) => v.name === newInputs[i].name)) ? prev : newInputs);
-    if (isPlaying) {
-      const result = await audioEngineRef.current.updateCode(value);
-      if (!result.success) { setStatus('Compile Error'); setEditorMarkers(parseVultError(result)); }
-      else { setStatus('Running'); setEditorMarkers([]); }
-    }
+    
+    // Live Syntax Checking / Compilation Debounce
+    if (codeDebounceTimerRef.current) clearTimeout(codeDebounceTimerRef.current);
+    codeDebounceTimerRef.current = setTimeout(async () => {
+      // Determine what state we're running based on the live variable
+      // Wait, we can't reliably read 'isPlaying' if it's stale in the closure, 
+      // but 'isPlaying' is in the dependencies since it's an inline async arrow... wait, 'handleCodeChange' 
+      // isn't wrapped in useCallback so it's fresh each render. 
+      // Actually, safest is to check audioEngineRef directly.
+      const playing = audioEngineRef.current.getIsPlaying();
+      if (playing) {
+        const result = await audioEngineRef.current.updateCode(value);
+        if (!result.success) { setStatus('Compile Error'); setEditorMarkers(parseVultError(result)); }
+        else { setStatus('Running'); setEditorMarkers([]); }
+      } else {
+        const result = await audioEngineRef.current.compileCheck(value);
+        if (!result.success) { setStatus('Syntax Error'); setEditorMarkers(parseVultError(result)); }
+        else { setStatus('Idle'); setEditorMarkers([]); }
+      }
+    }, 400);
   };
 
   const updateInput = (idx: number, patch: Partial<InputSource>) => {

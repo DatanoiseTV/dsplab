@@ -300,6 +300,37 @@ export class AudioEngine {
     }
   }
 
+  public async compileCheck(vultCode: string) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for bg checks
+
+      const response = await fetch('/api/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: vultCode }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const text = await response.text();
+        return { success: false, error: text };
+      }
+
+      const compilation = await response.json();
+      if (compilation.errors && Array.isArray(compilation.errors) && compilation.errors.length > 0) {
+        const msg = compilation.errors[0].msg || "Compilation Error";
+        return { success: false, error: msg, rawErrors: compilation.errors };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      if (err.name === 'AbortError') return { success: true }; // Ignore timeouts for bg checks
+      return { success: false, error: "Network Error: " + err.toString() };
+    }
+  }
+
   public getLiveState() {
     return this.liveState;
   }
