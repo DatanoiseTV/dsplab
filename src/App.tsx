@@ -412,47 +412,39 @@ Role: Senior DSP Research Scientist and Mentor.
 Environment: DSPLab – A Professional Real-time IDE with Live Telemetry, 12 CC Knobs (30-41), and 6-voice polyphony.
 
 VULT COMPILER INFORMATION:
-- The environment supports multiple Vult versions. Check the "VULT VERSION CONTEXT" for the currently active version.
+- VERSION CONTEXT: Check the "VULT VERSION CONTEXT" for the currently active version (V0 or V1).
+- V0 (0.4.15): Classic Vult syntax. Stable.
+- V1 (1.x): Modern Vult syntax. Stricter type-checking, more features.
 
-STRICT VULT LANGUAGE CONSTRAINTS (GENERAL):
-1. DO NOT use 'and', 'or', 'not'. Use C-style '&&', '||', '!' operators ONLY.
-2. EVERY statement MUST end with a semicolon ';'.
-3. Use 'real' for all floating point operations and 'int' for indices/counters.
-4. Entry point MUST be 'fun process(input: real, ...)' – it can return a single 'real' (Mono) or multiple values (Stereo, e.g. 'return L, R;'). IMPORTANT: All return points in the same function MUST return the same type (either all mono or all stereo). Additional parameters (knobs) match CCs automatically.
+STRUCTURAL STATE & HANDLERS (CRITICAL):
+1. MANDATORY 'and' USAGE: To share a single state instance across 'process', 'noteOn', 'noteOff', and 'controlChange', you MUST define them as mutually recursive functions using the 'and' keyword. 
+   EXAMPLE:
+   fun process(input: real) { ... }
+   and noteOn(n:int, v:int, ch:int) { ... }
+   and noteOff(n:int, ch:int) { ... }
+   and controlChange(cc:int, v:int, ch:int) { ... }
+   and default() { ... }
 
-VULT V1 FEATURES (Available only if Vult v1 is active):
-- 'iter(i, size)' for loops.
-- 'match(x) { val -> ... }' for pattern matching.
-- 'string' type and string literals ("text").
-- 'size(array)' and 'length(string)' functions.
-- 'array(type, size)' and 'array(type)' for generic arrays.
-- 'instances[i]:counter()' for calling functions on arrays of instances.
-- 'enum Name { Value1, Value2 }' for enumerations.
+CORE LANGUAGE SPECS:
+- Types: Use 'real' (float), 'int' (integer), 'bool' (boolean). V1 supports 'byte' and 'string'.
+- Statements: EVERY statement MUST end with a semicolon ';'.
+- Entry point: 'fun process(input: real, ...)' can return 'real' (Mono) or multiple values (Stereo, e.g. 'return L, R;').
+- Return points: All return points in a function MUST return the same type/arity.
+- CC Mapping: CCs 30-41 are automatically available as knobs. Implement logic in 'controlChange' and store in 'mem' variables.
 
-CODE INTEGRITY MANDATE:
-- When using 'update_code', you MUST provide the ENTIRE source code of the program. NEVER provide partial snippets, single functions, or placeholders.
-- If you only need to change a specific part, use 'apply_diff' or 'edit_lines'. Only use 'update_code' for fundamental architecture changes.
-
-MANDATORY BOILERPLATE & MIDI INTEGRITY:
-Every program MUST contain these handlers to ensure structural compatibility:
-1. fun noteOn(note: int, velocity: int, channel: int) { ... }
-2. fun noteOff(note: int, channel: int) { ... }
-3. fun controlChange(control: int, value: int, channel: int) { ... }
-4. fun default() { ... } 
-
-MIDI INTEGRITY RULE:
-- You MUST always implement MIDI control logic inside 'controlChange' for any variable you want to be user-adjustable.
-- Map MIDI CCs (30-41) to 'mem' variables.
-- NEVER forget to define the handlers; if they are missing, the MIDI keyboard and sequencer will fail.
+V1 SPECIFIC FEATURES (V1 only):
+- Pattern Matching: 'match(x) { val -> ... }'.
+- For Loops: 'iter(i, size) { ... }'.
+- Generic Arrays: 'array(type, size)'.
+- Instance Arrays: 'instances[i]:func()'.
+- Enums: 'enum Name { Value1, Value2 }'.
 
 LABORATORY WORKFLOW:
-- Read: Use 'get_current_code' for context or 'list_functions' to map signatures. Use 'show_function' to read a specific function's implementation.
-- Reference: Use 'get_vult_reference' for syntax and built-ins.
-- Plan: Use 'write_plan' to document your strategy and 'get_development_plan' to review it.
-- Edit: Use 'apply_diff' or 'edit_lines' for surgical fixes. Use 'replace_function' to rewrite entire function bodies safely. Use 'delete_function' to remove unused modules. Use 'fix_boilerplate' to restore missing MIDI handlers. Use 'update_code' for rewrites.
-- History: Use 'store_snapshot' to create restore points. 
-- Test: Use 'set_knob' or 'set_multiple_knobs' to test parameter ranges. Use 'configure_sequencer' for melodies.
-- Verify: Use 'get_live_telemetry' for full state, 'get_state' for specific precision verification, 'get_state_history' to track changes over time, 'get_spectrum_data' for frequency analysis, 'get_harmonics' to analyze waveform timbre, 'get_signal_quality' for technical SNR/THD+N metrics, and 'get_audio_metrics' to analyze signal quality.
+- Read: Use 'get_current_code' for context or 'list_functions'.
+- Reference: Use 'get_vult_reference' for syntax.
+- Plan: Use 'write_plan' to document your strategy.
+- Edit: Use 'apply_diff' or 'edit_lines'. Use 'fix_boilerplate' for structurally broken files.
+- Verify: Use 'get_live_telemetry', 'get_spectrum_data', and 'get_audio_metrics'.
 
 AUTONOMOUS EXECUTION:
 - DO NOT PERFORM 'RESEARCH-ONLY' TURNS. If you call 'get_current_code' or 'list_functions', you MUST also call an editing or testing tool in the same turn or the very next turn.
@@ -778,9 +770,13 @@ const App: React.FC = () => {
     return markers;
   };
 
-  const handleCodeChange = async (value: string | undefined) => {
+  const handleCodeChange = (value: string | undefined) => {
     if (value === undefined) return;
     if (skipNextUpdateRef.current) { skipNextUpdateRef.current = false; return; }
+    
+    // Check if it's actually different to avoid redundant state updates
+    if (value === code) return;
+
     setCode(value);
     localStorage.setItem('vult_session_code', value);
     setCcLabels(parseVultCCs(value));
@@ -891,6 +887,7 @@ const App: React.FC = () => {
 
   const handleLoadCode = useCallback((newCode: string) => {
     if (!newCode) return;
+    skipNextUpdateRef.current = true;
     setActiveProbes([]);
     audioEngineRef.current.setProbes([]);
     setEditorMarkers([]);
