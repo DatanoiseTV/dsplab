@@ -2,12 +2,14 @@
 
 A development environment and diagnostic laboratory for DSP engineering.
 
-<img width="1802" height="1101" alt="Screenshot 2026-03-09 at 22 17 24" src="https://github.com/user-attachments/assets/d79cce5d-7908-41f9-99c7-dd26371a1ccf" />
+<img width="1624" height="1008" alt="Screenshot 2026-03-10 at 20 48 43" src="https://github.com/user-attachments/assets/dd3406a6-91b8-42df-b2e8-f5aee413bd0a" />
+
 
 ## Demonstrations
 
-[![VultLab Demo 1](https://img.youtube.com/vi/a9dpFKu8R3U/0.jpg)](https://www.youtube.com/watch?v=a9dpFKu8R3U)
 [![VultLab Demo 2](https://img.youtube.com/vi/yIxnidwjYcY/0.jpg)](https://www.youtube.com/watch?v=yIxnidwjYcY)
+
+Outdated demos, soon more.
 
 ## Why VultLab?
 
