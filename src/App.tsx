@@ -78,6 +78,7 @@ const App: React.FC = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportTarget, setExportTarget] = useState('c');
   const [exportJavaPrefix, setExportJavaPrefix] = useState('com.example');
+  const [exportTemplate, setExportTemplate] = useState('default');
   const [exportStatus, setExportStatus] = useState('');
 
   // Community presets (fetched from GitHub)
@@ -428,7 +429,7 @@ const App: React.FC = () => {
     if (!opt) return;
     setExportStatus('Generating...');
     try {
-      const body: Record<string, string> = { code, target: exportTarget };
+      const body: Record<string, string> = { code, target: exportTarget, template: exportTemplate };
       if (exportTarget === 'java') body.javaPrefix = exportJavaPrefix;
       const response = await fetch('/api/compile', {
         method: 'POST',
@@ -1138,6 +1139,29 @@ const App: React.FC = () => {
                     color: '#e0e0e0', padding: '7px 10px', fontSize: '13px', fontFamily: 'monospace'
                   }}
                 />
+              </div>
+            )}
+
+            {exportTarget === 'c' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ color: '#888', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Template</label>
+                <select
+                  value={exportTemplate}
+                  onChange={e => setExportTemplate(e.target.value)}
+                  style={{
+                    background: '#111', border: '1px solid #333', borderRadius: '4px',
+                    color: '#e0e0e0', padding: '7px 10px', fontSize: '13px'
+                  }}
+                >
+                  <option value="default">Default</option>
+                  <option value="none">None</option>
+                  <option value="arduino">Arduino</option>
+                  <option value="teensy">Teensy</option>
+                  <option value="pd">Pure Data</option>
+                  <option value="max">Max/MSP</option>
+                  <option value="modelica">Modelica</option>
+                  <option value="performance">Performance</option>
+                </select>
               </div>
             )}
 
