@@ -1020,10 +1020,15 @@ const App: React.FC = () => {
                     <StateInspector onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} onProbe={toggleProbe} onSetState={(path, val) => audioEngineRef.current.setState(path, val)} activeProbes={activeProbes} />
                   </div>
                   {activeProbes.length > 0 && (
-                    <div className="mini-scope-section" style={{ height: '300px', minHeight: '200px', padding: '10px', background: '#111', borderTop: '1px solid #333', overflowY: 'auto' }}>
-                      <div className="section-title"><Activity size={12} /> PROBE SCOPE (MULTI-TRACE)</div>
-                      <MultiScopeView probes={activeProbes} onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} />
-                    </div>
+                    <details style={{ background: '#111', borderTop: '1px solid #333' }}>
+                      <summary style={{ padding: '8px 10px', cursor: 'pointer', color: '#888', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.5px', listStyle: 'none' }}>
+                        <Activity size={12} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                        PROBE SCOPE (MULTI-TRACE) - {activeProbes.length} active
+                      </summary>
+                      <div style={{ padding: '10px', height: '250px', minHeight: '150px' }}>
+                        <MultiScopeView probes={activeProbes} onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)} />
+                      </div>
+                    </details>
                   )}
                 </div>
               ) : (
