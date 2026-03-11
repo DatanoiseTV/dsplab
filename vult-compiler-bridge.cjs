@@ -50,8 +50,8 @@ if (!compilerV0 || typeof compilerV0.generateJSCode !== 'function') {
     process.exit(1);
 }
 
-// Run vultc in sandbox workdir, return promise resolving to { code, errors }
-function runVultc(code, target, javaPrefix) {
+// Run vultc in sandbox workdir, return promise resolving to { files, errors }
+function runVultc(code, target, javaPrefix, template) {
     return new Promise((resolve) => {
         let workDir = SANDBOX_WORKDIR;
         if (!workDir || !validateDir(workDir)) workDir = os.tmpdir();
@@ -75,8 +75,10 @@ function runVultc(code, target, javaPrefix) {
         fs.writeFileSync(tmpFile, code);
 
         const args = [tmpFile, targetCfg.flag, '-o', outBase];
-        if (targetCfg.template) {
-            args.push('-template', targetCfg.template);
+        // Use template from parameter if provided, otherwise fall back to target-specific default
+        const effectiveTemplate = template || targetCfg.template;
+        if (effectiveTemplate) {
+            args.push('-template', effectiveTemplate);
         }
         if (targetCfg.needsPrefix && javaPrefix) {
             // java needs: vultc file.vult -javacode com.company -o out
@@ -121,6 +123,17 @@ function runVultc(code, target, javaPrefix) {
                 try { fs.unlinkSync(outFile); } catch(e) {}
             }
 
+            // Include runtime files for C/C++ targets
+            if (effectiveTarget === 'c' || effectiveTarget === 'cpp' || targetCfg.exts.includes('.cpp')) {
+                const runtimeDir = path.join(__dirname, 'vult-runtime');
+                if (fs.existsSync(path.join(runtimeDir, 'vultin.h'))) {
+                    files['vultin.h'] = fs.readFileSync(path.join(runtimeDir, 'vultin.h'), 'utf8');
+                }
+                if (fs.existsSync(path.join(runtimeDir, 'vultin.cpp'))) {
+                    files['vultin.cpp'] = fs.readFileSync(path.join(runtimeDir, 'vultin.cpp'), 'utf8');
+                }
+            }
+
             resolve({ files, errors: [] });
         });
     });
@@ -130,7 +143,7 @@ let inputData = '';
 process.stdin.on('data', chunk => { inputData += chunk; });
 process.stdin.on('end', async () => {
     try {
-        const { code, target, javaPrefix, version } = JSON.parse(inputData);
+        const { code, target, javaPrefix, version, template } = JSON.parse(inputData);
         if (!code) throw new Error("No code provided");
 
         const compiler = version === 'v1' && compilerV1 ? compilerV1 : compilerV0;
@@ -178,7 +191,7 @@ process.stdin.on('end', async () => {
             return;
         }
 
-        const result = await runVultc(code, effectiveTarget, javaPrefix);
+        const result = await runVultc(code, effectiveTarget, javaPrefix, template);
         process.stdout.write(JSON.stringify(result));
 
     } catch (e) {
