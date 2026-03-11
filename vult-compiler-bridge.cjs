@@ -63,7 +63,7 @@ function runVultc(code, target, javaPrefix) {
         }
 
         const targetCfg = TARGET_MAP[target] || TARGET_MAP['c'];
-        const baseName = 'vult_out_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+        const baseName = 'dsplab';
         const tmpFile = path.join(workDir, baseName + '.vult');
         const outBase = path.join(workDir, baseName);
 
