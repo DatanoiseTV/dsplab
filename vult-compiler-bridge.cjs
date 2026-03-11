@@ -102,7 +102,7 @@ function runVultc(code, target, javaPrefix, template) {
                 // Retry with boilerplate stubs injected
                 if (!code.includes('fun noteOn') && !code.includes('and noteOn')) {
                     const stubs = `\nand noteOn(note:int, velocity:int, channel:int){ }\nand noteOff(note:int, channel:int){ }\nand controlChange(control:int, value:int, channel:int){ }\nand default(){ }`;
-                    resolve(runVultc(code + stubs, target, javaPrefix));
+                    resolve(runVultc(code + stubs, target, javaPrefix, template));
                 } else {
                     resolve({ errors: [{ msg: stderr || stdout || 'vultc failed' }] });
                 }
@@ -124,7 +124,7 @@ function runVultc(code, target, javaPrefix, template) {
             }
 
             // Include runtime files for C/C++ targets
-            if (effectiveTarget === 'c' || effectiveTarget === 'cpp' || targetCfg.exts.includes('.cpp')) {
+            if (target === 'c' || target === 'cpp' || target === 'c-pd' || target === 'c-teensy') {
                 const runtimeDir = path.join(__dirname, 'vult-runtime');
                 if (fs.existsSync(path.join(runtimeDir, 'vultin.h'))) {
                     files['vultin.h'] = fs.readFileSync(path.join(runtimeDir, 'vultin.h'), 'utf8');
