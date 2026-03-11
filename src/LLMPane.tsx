@@ -4,11 +4,6 @@ import { Send, Loader2, Settings, Activity, StopCircle, ChevronDown, ChevronRigh
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import 'prismjs/themes/prism-tomorrow.css';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
-import 'prismjs/components/prism-javascript';
 
 import { CodeBlock } from './components/CodeBlock';
 import { PROVIDER_PRESETS, resolveBaseUrl, resolveFullUrl } from './utils/llmProviders';

@@ -1,11 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Copy, Check, Zap } from 'lucide-react';
 import Prism from 'prismjs';
-import 'prismjs/themes/prism-tomorrow.css';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
-import 'prismjs/components/prism-javascript';
 
 interface CodeBlockProps {
   code: string;

@@ -532,7 +532,7 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
   };
 
   return (
-    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
+    <div key={diffMode ? 'diff' : 'single'} style={{ height: '100%', width: '100%', position: 'relative' }}>
       {diffMode ? (
         <DiffEditor
           height="100%"
