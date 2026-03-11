@@ -107,8 +107,8 @@ function runVultc(code, target, javaPrefix) {
                 return;
             }
 
-            // Collect output files in order, skip .tables.h from display (include in bundle)
-            let finalCode = '';
+            // Collect output files as a map
+            const files = {};
             for (const ext of targetCfg.exts) {
                 const outFile = outBase + ext;
                 if (!fs.existsSync(outFile)) continue;
@@ -117,13 +117,11 @@ function runVultc(code, target, javaPrefix) {
                     return;
                 }
                 const content = fs.readFileSync(outFile, 'utf8');
-                if (ext !== '.tables.h') {
-                    finalCode += (finalCode ? '\n\n' : '') + `// File: ${path.basename(outFile)}\n` + content;
-                }
+                files[path.basename(outFile)] = content;
                 try { fs.unlinkSync(outFile); } catch(e) {}
             }
 
-            resolve({ code: finalCode, errors: [] });
+            resolve({ files, errors: [] });
         });
     });
 }
