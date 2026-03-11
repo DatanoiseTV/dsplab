@@ -17,448 +17,13 @@ import type { Step } from './Sequencer';
 import { Knob } from './Knob';
 import CommunityPresetsModal from './CommunityPresetsModal';
 import { useCommunityPresets, loadPresetCode } from './useCommunityPresets';
+import { PRESETS } from './constants/presets';
+import { SYSTEM_PROMPT_BASE } from './constants/systemPrompt';
+import { EXPORT_OPTIONS } from './constants/exportOptions';
 import './App.css';
 
-const PRESETS: Record<string, string> = {
-  "Biquad Filter": `fun biquad(x0: real, b0: real, b1: real, b2: real, a1: real, a2: real) : real {
-  mem w1, w2;
-  val w0 = x0 - a1 * w1 - a2 * w2;
-  val y0 = b0 * w0 + b1 * w1 + b2 * w2;
-  w2, w1 = w1, w0;
-  return y0;
-}
-
-fun process(input: real) {
-  mem cutoff_cc;
-  val fc = cutoff_cc * 0.5 + 0.01;
-  val b0 = fc; val b1 = fc; val b2 = 0.0;
-  val a1 = -0.5; val a2 = 0.0;
-  return biquad(input, b0, b1, b2, a1, a2);
-}
-
-fun noteOn(note: int, velocity: int, channel: int) { }
-fun noteOff(note: int, channel: int) { }
-
-fun controlChange(control: int, value: int, channel: int) {
-  mem cutoff_cc;
-  if (control == 30) {
-    cutoff_cc = real(value) / 127.0;
-  }
-}
-`,
-  "Simple Volume": `fun process(input: real, volume: real) {
-  return input * volume;
-}
-`,
-  "Minimal": `fun process(input: real) {
-  return input;
-}
-
-and noteOn(note: int, velocity: int, channel: int) {
-}
-
-and noteOff(note: int, channel: int) {
-}
-
-and controlChange(control: int, value: int, channel: int) {
-}
-
-and default() {
-}
-`,
-  "vs80": `// =============================================================================
-// VULT CS-80 "FAT EDITION" - V15 (DUAL VCO + SATURATION + LOW-SHELF)
-// Ultimate low-end weight and harmonic richness.
-// =============================================================================
-
-// --- 1. UTILITIES & MATH ---
-
-fun pitchToRate(pitch: real) : real @[table(size=127,min=0.0,max=127.0)] {
-    return 8.1757989156 * exp(0.05776226505 * pitch) / 44100.0;
-}
-
-fun polyblep(phase: real, inc: real) : real {
-    val t = phase / inc;
-    if (t < 1.0) { return t + t - t * t - 1.0; } 
-    else if (t > (1.0 / inc) - 1.0) {
-        val t2 = (t - (1.0 / inc));
-        return t2 * t2 + t2 + t2 + 1.0;
-    }
-    return 0.0;
-}
-
-fun wrap_idx(idx_raw: int, size: int) : int {
-    val out = idx_raw % size;
-    if (out < 0) { out = out + size; }
-    return out;
-}
-
-fun lerp(a: real, b: real, t: real) : real {
-    return a + (b - a) * t;
-}
-
-// --- 2. CORE COMPONENTS ---
-
-fun cs80_vibrato(rate: real, depth: real) : real {
-    mem phase: real;
-    val inc = (0.5 + rate * 10.0) / 44100.0;
-    phase = phase + inc;
-    if (phase >= 1.0) { phase = phase - 1.0; }
-    return sin(phase * 6.2831853) * depth * 0.5;
-}
-
-fun cs80_vco(cv: real, pwm_base: real, pwm_mod: real) : real {
-    mem phase: real;
-    val inc = pitchToRate(clip(cv, 0.0, 127.0));
-    phase = phase + inc;
-    if (phase >= 1.0) { phase = phase - 1.0; }
-    val saw = (1.0 - 2.0 * phase) + polyblep(phase, inc);
-    val pw = clip(pwm_base + pwm_mod, 0.1, 0.9);
-    val p2 = phase + 1.0 - pw;
-    val p2_wrapped = if p2 >= 1.0 then p2 - 1.0 else p2;
-    val naive_sq = if phase < pw then 1.0 else -1.0;
-    val sqr = naive_sq + polyblep(phase, inc) - polyblep(p2_wrapped, inc);
-    return (saw + sqr) * 0.5;
-}
-
-fun cs80_sub_osc(cv: real) : real {
-    mem phase: real;
-    val inc = pitchToRate(clip(cv - 12.0, 0.0, 127.0));
-    phase = phase + inc;
-    if (phase >= 1.0) { phase = phase - 1.0; }
-    val pw = 0.5;
-    val p2 = phase + 1.0 - pw;
-    val p2_wrapped = if p2 >= 1.0 then p2 - 1.0 else p2;
-    val naive_sq = if phase < pw then 1.0 else -1.0;
-    val sqr = naive_sq + polyblep(phase, inc) - polyblep(p2_wrapped, inc);
-    val tri = if phase < 0.5 then 4.0 * phase - 1.0 else 3.0 - 4.0 * phase;
-    return sqr * 0.6 + tri * 0.4;
-}
-
-fun cs80_pitch_eg(gate: bool, start_pitch: real, time: real) : real {
-    mem env: real;
-    mem prev_gate: bool;
-    val rate = 1.0 / (0.001 + time * 1.0 * 44100.0);
-    if (gate == true) {
-        if (prev_gate == false) { env = start_pitch; }
-        env = env + (0.0 - env) * rate;
-    } else {
-        env = 0.0;
-    }
-    prev_gate = gate;
-    return env;
-}
-
-fun cs80_filter(in_sig: real, cv: real, res: real, is_hp: bool) : real {
-    mem ic1eq: real; mem ic2eq: real;
-    val g = clip(pitchToRate(cv) * 3.14159 * 2.0, 0.001, 0.9);
-    val k = 2.0 - (clip(res, 0.0, 1.0) * 1.9);
-    val a1 = 1.0 / (1.0 + g * (g + k));
-    val a2 = g * a1;
-    val a3 = g * a2;
-    val v3 = in_sig - ic2eq;
-    val v1 = a1 * ic1eq + a2 * v3;
-    val v2 = ic2eq + a2 * ic1eq + a3 * v3;
-    ic1eq = 2.0 * v1 - ic1eq;
-    ic2eq = 2.0 * v2 - ic2eq;
-    val out = if is_hp == true then in_sig - k * v1 - v2 else v2;
-    return out;
-}
-
-fun adsr(gate: bool, a: real, d: real, s: real, r: real) : real {
-    mem state: int; mem v: real; mem prev_gate: bool;
-    val a_r = 1.0 / (0.001 + a * 2.0 * 44100.0);
-    val d_r = 1.0 / (0.01 + d * 4.0 * 44100.0);
-    val r_r = 1.0 / (0.01 + r * 5.0 * 44100.0);
-    if (gate == true) {
-        if (prev_gate == false) { state = 1; v = 0.0; }
-        if (state == 1) { v = v + a_r; if (v >= 1.0) { v = 1.0; state = 2; } }
-        else if (state == 2) { v = v + (s - v) * d_r; }
-    } else {
-        state = 0;
-        v = v + (0.0 - v) * r_r;
-    }
-    prev_gate = gate;
-    return v;
-}
-
-// --- 3. EFFECTS ---
-
-fun roland_chorus(in_sig: real, depth: real) : real {
-    mem b1: array(real, 1024); mem pos: int; mem lfo: real;
-    pos = (pos + 1) % 1024;
-    b1[pos] = in_sig;
-    lfo = lfo + (0.6 / 44100.0);
-    if (lfo >= 1.0) { lfo = 0.0; }
-    val tri = if lfo < 0.5 then lfo * 4.0 - 1.0 else 3.0 - lfo * 4.0;
-    val mod_depth = depth * 150.0;
-    val offset1 = 660.0 + (tri * mod_depth);
-    val offset2 = 660.0 - (tri * mod_depth);
-    
-    val i1 = int(offset1); val f1 = offset1 - real(i1);
-    val t1 = lerp(b1[wrap_idx(pos - i1, 1024)], b1[wrap_idx(pos - i1 - 1, 1024)], f1);
-    
-    val i2 = int(offset2); val f2 = offset2 - real(i2);
-    val t2 = lerp(b1[wrap_idx(pos - i2, 1024)], b1[wrap_idx(pos - i2 - 1, 1024)], f2);
-    
-    return in_sig * 0.5 + t1 * 0.25 + t2 * 0.25;
-}
-
-fun pitch_shifter(in_sig: real) : real {
-    mem buffer: array(real, 2048);
-    mem write_ptr: int;
-    mem phase: real;
-    
-    write_ptr = (write_ptr + 1) % 2048;
-    buffer[write_ptr] = in_sig;
-    
-    phase = phase + (1.0 / 2048.0); 
-    if (phase >= 1.0) { phase = phase - 1.0; }
-    
-    val mod1 = (1.0 - phase) * 2048.0;
-    val phase2 = if phase + 0.5 >= 1.0 then phase - 0.5 else phase + 0.5;
-    val mod2 = (1.0 - phase2) * 2048.0;
-    
-    val i1 = int(mod1); val f1 = mod1 - real(i1);
-    val tap1 = lerp(buffer[wrap_idx(write_ptr - i1, 2048)], buffer[wrap_idx(write_ptr - i1 - 1, 2048)], f1);
-    
-    val i2 = int(mod2); val f2 = mod2 - real(i2);
-    val tap2 = lerp(buffer[wrap_idx(write_ptr - i2, 2048)], buffer[wrap_idx(write_ptr - i2 - 1, 2048)], f2);
-    
-    val fade = if phase < 0.5 then phase * 2.0 else 2.0 - phase * 2.0;
-    return tap1 * fade + tap2 * (1.0 - fade);
-}
-
-fun shimmer_reverb(in_sig: real, mix: real, decay: real, shimmer: real, lush: real, damp: real) : real {
-    mem d1: array(real, 1031); mem d2: array(real, 1381);
-    mem d3: array(real, 1619); mem d4: array(real, 1979);
-    mem p1: int; mem p2: int; mem p3: int; mem p4: int;
-    mem s1: real; mem s2: real; mem s3: real; mem s4: real;
-    mem lp: real; mem dc: real; mem lfo: real;
-
-    p1 = (p1 + 1) % 1031; p2 = (p2 + 1) % 1381;
-    p3 = (p3 + 1) % 1619; p4 = (p4 + 1) % 1979;
-
-    lfo = lfo + (0.15 / 44100.0);
-    if (lfo >= 1.0) { lfo = 0.0; }
-    val mod = sin(lfo * 6.2831853) * lush * 12.0;
-
-    // Hadamard Matrix
-    val f1 = 0.5 * (s1 + s2 + s3 + s4);
-    val f2 = 0.5 * (s1 - s2 + s3 - s4);
-    val f3 = 0.5 * (s1 + s2 - s3 - s4);
-    val f4 = 0.5 * (s1 - s2 - s3 + s4);
-
-    // Shimmer + Soft Clipping for stability
-    val shim_in = tanh((f1 + f2 + f3 + f4) * 0.5);
-    val shim_sig = pitch_shifter(shim_in) * shimmer * 1.2;
-    
-    // Damping & DC Block
-    lp = lp + (shim_sig - lp) * (1.0 - damp * 0.9);
-    dc = dc + (f1 - dc) * 0.001;
-
-    // Conservative feedback gain (max 0.85)
-    val fb = decay * 0.85;
-    
-    // Inject shimmer and feedback with tanh safety
-    d1[p1] = in_sig + tanh((f1 - dc) * fb + lp * 0.5);
-    d2[p2] = in_sig + tanh((f2 - dc) * fb);
-    d3[p3] = in_sig + tanh((f3 - dc) * fb);
-    d4[p4] = in_sig + tanh((f4 - dc) * fb);
-
-    // Linear Interpolated Reads
-    val i1 = int(10.0 + mod); val fr1 = (10.0 + mod) - real(i1);
-    s1 = lerp(d1[wrap_idx(p1 - i1, 1031)], d1[wrap_idx(p1 - i1 - 1, 1031)], fr1);
-    
-    val i2 = int(10.0 + mod); val fr2 = (10.0 + mod) - real(i2);
-    s2 = lerp(d2[wrap_idx(p2 - i2, 1381)], d2[wrap_idx(p2 - i2 - 1, 1381)], fr2);
-    
-    val i3 = int(10.0 + mod); val fr3 = (10.0 + mod) - real(i3);
-    s3 = lerp(d3[wrap_idx(p3 - i3, 1619)], d3[wrap_idx(p3 - i3 - 1, 1619)], fr3);
-    
-    val i4 = int(10.0 + mod); val fr4 = (10.0 + mod) - real(i4);
-    s4 = lerp(d4[wrap_idx(p4 - i4, 1979)], d4[wrap_idx(p4 - i4 - 1, 1979)], fr4);
-
-    val wet = (s1 + s2 + s3 + s4) * 0.25;
-    return in_sig + wet * mix;
-}
-
-// --- 4. VOICE ARCHITECTURE ---
-
-fun cs80_voice(
-    gate: bool, note: real, pb: real, vib: real,
-    pwm_amt: real, sub_amt: real, detune: real, drive: real,
-    hp_c: real, lp_c: real, res: real,
-    eg_a: real, eg_d: real, eg_s: real, eg_r: real,
-    p_start: real, p_time: real
-) : real {
-    val amp_env = adsr(gate, eg_a, eg_d, eg_s, eg_r);
-    val pit_env = cs80_pitch_eg(gate, p_start, p_time);
-    val pitch = note + pb + vib + pit_env;
-    
-    // Dual VCO with Detune
-    val osc1 = cs80_vco(pitch, 0.5, vib * pwm_amt);
-    val osc2 = cs80_vco(pitch + detune * 0.5, 0.5, vib * pwm_amt);
-    val sub = cs80_sub_osc(pitch);
-    
-    // Mix and Saturate
-    val mixed = (osc1 + osc2) * 0.5 + sub * sub_amt;
-    val driven = tanh(mixed * (1.0 + drive * 4.0));
-    
-    val hpf = cs80_filter(driven, hp_c, 0.1, true);
-    val lpf = cs80_filter(hpf, lp_c + (amp_env * 70.0), res, false);
-    
-    return tanh(lpf * amp_env);
-}
-
-// --- 5. HOST INTERFACE ---
-
-fun low_shelf(in_sig: real, freq: real, gain: real) : real {
-    mem lp: real;
-    val alpha = pitchToRate(freq) * 3.14159 * 2.0;
-    lp = lp + (in_sig - lp) * alpha;
-    return in_sig + lp * gain;
-}
-
-fun process(input: real) {
-    mem n1: real; mem n2: real; mem n3: real; mem n4: real; mem n5: real; mem n6: real;
-    mem g1: bool; mem g2: bool; mem g3: bool; mem g4: bool; mem g5: bool; mem g6: bool;
-    mem pb: real; mem vib_rate: real; mem vib_depth: real; mem pwm_amt: real; mem sub_amt: real;
-    mem detune: real; mem drive: real;
-    mem hp_c: real; mem lp_c: real; mem res: real; mem eg_a: real; mem eg_d: real; mem eg_s: real; mem eg_r: real;
-    mem p_start: real; mem p_time: real; mem chorus_depth: real; mem vol: real;
-    mem rev_mix: real; mem rev_decay: real; mem rev_shimmer: real; mem rev_lush: real; mem rev_damp: real;
-    mem voice_ptr: int;
-
-    val vib = cs80_vibrato(vib_rate, vib_depth);
-
-    val o1 = cs80_voice(g1, n1, pb, vib, pwm_amt, sub_amt, detune, drive, hp_c, lp_c, res, eg_a, eg_d, eg_s, eg_r, p_start, p_time);
-    val o2 = cs80_voice(g2, n2, pb, vib, pwm_amt, sub_amt, detune, drive, hp_c, lp_c, res, eg_a, eg_d, eg_s, eg_r, p_start, p_time);
-    val o3 = cs80_voice(g3, n3, pb, vib, pwm_amt, sub_amt, detune, drive, hp_c, lp_c, res, eg_a, eg_d, eg_s, eg_r, p_start, p_time);
-    val o4 = cs80_voice(g4, n4, pb, vib, pwm_amt, sub_amt, detune, drive, hp_c, lp_c, res, eg_a, eg_d, eg_s, eg_r, p_start, p_time);
-    val o5 = cs80_voice(g5, n5, pb, vib, pwm_amt, sub_amt, detune, drive, hp_c, lp_c, res, eg_a, eg_d, eg_s, eg_r, p_start, p_time);
-    val o6 = cs80_voice(g6, n6, pb, vib, pwm_amt, sub_amt, detune, drive, hp_c, lp_c, res, eg_a, eg_d, eg_s, eg_r, p_start, p_time);
-    
-    val mix = (o1 + o2 + o3 + o4 + o5 + o6) * 0.25;
-    val chorused = roland_chorus(mix, chorus_depth);
-    val reverbed = shimmer_reverb(chorused, rev_mix, rev_decay, rev_shimmer, rev_lush, rev_damp);
-    // Final Bass Boost (Low Shelf at 150Hz)
-    val final_out = low_shelf(reverbed, 30.0, 0.5);
-    return final_out * vol, final_out * vol;
-}
-
-and noteOn(n: int, v: int, ch: int) {
-    val rn = real(n);
-    voice_ptr = (voice_ptr + 1) % 6;
-    if (voice_ptr == 0) { n1 = rn; g1 = true; }
-    else if (voice_ptr == 1) { n2 = rn; g2 = true; }
-    else if (voice_ptr == 2) { n3 = rn; g3 = true; }
-    else if (voice_ptr == 3) { n4 = rn; g4 = true; }
-    else if (voice_ptr == 4) { n5 = rn; g5 = true; }
-    else if (voice_ptr == 5) { n6 = rn; g6 = true; }
-}
-
-and noteOff(n: int, ch: int) {
-    val rn = real(n);
-    if (n1 == rn) { g1 = false; } 
-    if (n2 == rn) { g2 = false; }
-    if (n3 == rn) { g3 = false; }
-    if (n4 == rn) { g4 = false; }
-    if (n5 == rn) { g5 = false; }
-    if (n6 == rn) { g6 = false; }
-}
-
-and controlChange(c: int, v: int, ch: int) {
-    val vn = real(v) / 127.0;
-    if (c == 30) { vib_rate = vn; }
-    else if (c == 31) { vib_depth = vn; }
-    else if (c == 32) { pwm_amt = vn; }
-    else if (c == 38) { sub_amt = vn; }
-    else if (c == 39) { detune = vn; }
-    else if (c == 40) { drive = vn; }
-    else if (c == 74) { lp_c = vn * 100.0; }
-    else if (c == 71) { res = vn; }
-    else if (c == 76) { hp_c = vn * 100.0; }
-    else if (c == 73) { eg_a = vn; }
-    else if (c == 75) { eg_d = vn; }
-    else if (c == 79) { eg_s = vn; }
-    else if (c == 72) { eg_r = vn; }
-    else if (c == 80) { p_start = (vn - 0.5) * 12.0; }
-    else if (c == 81) { p_time = vn; }
-    else if (c == 82) { chorus_depth = vn; }
-    else if (c == 33) { rev_mix = vn; }
-    else if (c == 34) { rev_decay = vn; }
-    else if (c == 35) { rev_shimmer = vn; }
-    else if (c == 36) { rev_lush = vn; }
-    else if (c == 37) { rev_damp = vn; }
-    else if (c == 41) { vol = vn; }
-}
-
-and default() {
-    vib_rate = 0.4; vib_depth = 0.1; pwm_amt = 0.2; sub_amt = 0.5;
-    detune = 0.15; drive = 0.3;
-    lp_c = 40.0; hp_c = 20.0; res = 0.5;
-    eg_a = 0.01; eg_d = 0.2; eg_s = 0.4; eg_r = 0.2;
-    p_start = 0.5; p_time = 0.05; 
-    chorus_depth = 0.7; vol = 0.8;
-    rev_mix = 0.4; rev_decay = 0.8; rev_shimmer = 0.5; rev_lush = 0.5; rev_damp = 0.3;
-    voice_ptr = 0;
-}
-`
-};
-
-const SYSTEM_PROMPT_BASE = `
-Role: Senior DSP Research Scientist and Mentor. 
-Environment: DSPLab – A Professional Real-time IDE with Live Telemetry, 12 CC Knobs (30-41), and 6-voice polyphony.
-
-VULT COMPILER INFORMATION:
-- VERSION CONTEXT: Check the "VULT VERSION CONTEXT" for the currently active version (V0 or V1).
-- V0 (0.4.15): Classic Vult syntax. Stable.
-- V1 (1.x): Modern Vult syntax. Stricter type-checking, more features.
-
-STRUCTURAL STATE & HANDLERS (CRITICAL):
-1. MANDATORY 'and' USAGE: To share a single state instance across 'process', 'noteOn', 'noteOff', and 'controlChange', you MUST define them as mutually recursive functions using the 'and' keyword. 
-   EXAMPLE:
-   fun process(input: real) { ... }
-   and noteOn(n:int, v:int, ch:int) { ... }
-   and noteOff(n:int, ch:int) { ... }
-   and controlChange(cc:int, v:int, ch:int) { ... }
-   and default() { ... }
-
-CORE LANGUAGE SPECS:
-- Types: Use 'real' (float), 'int' (integer), 'bool' (boolean). V1 supports 'byte' and 'string'.
-- Statements: EVERY statement MUST end with a semicolon ';'.
-- Entry point: 'fun process(input: real, ...)' can return 'real' (Mono) or multiple values (Stereo, e.g. 'return L, R;').
-- Return points: All return points in a function MUST return the same type/arity.
-- CC Mapping: CCs 30-41 are automatically available as knobs. Implement logic in 'controlChange' and store in 'mem' variables.
-
-V1 SPECIFIC FEATURES (V1 only):
-- Enumerations: 'enum e { One, Two }'.
-- Record Types: 'type point { val x:real; val y:real; }'. Access with 'p.x'.
-- Constants: 'constant pi = 3.14;' (Global allowed).
-- Iter Loops: 'iter(i, count) { ... }' counts from 0 to count-1.
-- Generic Arrays: 'array(real, size)'. Use 'size(data)' for length. 'val x = data[i];'.
-- Instance Arrays: 'mem oscs : array(osc_type, 4);'. Called as 'oscs[i]:osc(f);'. 
-- Pattern Matching: 'match (x) { 0 -> { ... } _ -> { ... } }'. Support tuples: 'match (x, y) { 1, 2 -> ... }'.
-- Strings: 'string' type, literals '"..."', concat '+', 'string(val)', 'length(s)'.
-- Specialization: Parameters prefixed with ' (e.g., ''n : int') are evaluated at compile-time.
-
-LABORATORY WORKFLOW:
-- Read: Use 'get_current_code' for context or 'list_functions'.
-- Reference: Use 'get_vult_reference' for syntax.
-- Plan: Use 'write_plan' to document your strategy.
-- Edit: Use 'apply_diff' or 'edit_lines'. Use 'fix_boilerplate' for structurally broken files.
-- Verify: Use 'get_live_telemetry', 'get_spectrum_data', and 'get_audio_metrics'.
-
-AUTONOMOUS EXECUTION:
-- DO NOT PERFORM 'RESEARCH-ONLY' TURNS. If you call 'get_current_code' or 'list_functions', you MUST also call an editing or testing tool in the same turn or the very next turn.
-- TREAT 'write_plan' AS A STARTING ACTION, NEVER AN ENDING ACTION. You MUST implement at least one change after planning in the same turn.
-- You are in an autonomous loop. Use tool calls sequentially to achieve the goal. DO NOT wait for user confirmation unless using 'ask_user'.
-- Always verify your work using 'get_live_telemetry' and 'get_spectrum_data' to ensure the audible result matches your mathematical model.
-`;
-
 const App: React.FC = () => {
-  const [code, setCode] = useState(PRESETS["vs80"]);
+  const [code, setCode] = useState(PRESETS["Minimal"]);
   const [projectName, setProjectName] = useState(() => {
     return localStorage.getItem('vult_session_name') || "My Vult Project";
   });
@@ -532,17 +97,32 @@ const App: React.FC = () => {
 
   const parseVultCCs = useCallback((vultCode: string) => {
     const ccMap: Record<number, string> = {};
-    const regex = /(?:if|else\s+if)\s*\(\s*(?:c|control)\s*==\s*(\d+)\s*\)\s*\{?\s*([a-zA-Z_]\w*)\s*=[^;]+;?\s*\}?\s*(?:\/\/+(.*))?/g;
+    
+    // Pattern 1: if (control == 30) { label = ... }
+    const ifRegex = /(?:if|else\s+if)\s*\(\s*(?:c|control|cc)\s*==\s*(\d+)\s*\)\s*\{?\s*(?:val|var)?\s*([a-zA-Z_]\w*)\s*=[^;]+;?\s*\}?\s*(?:\/\/+(.*))?/g;
     let match;
-    regex.lastIndex = 0;
-    while ((match = regex.exec(vultCode)) !== null) {
+    ifRegex.lastIndex = 0;
+    while ((match = ifRegex.exec(vultCode)) !== null) {
       const cc = parseInt(match[1]);
       const varName = match[2];
       const comment = match[3]?.trim();
       if (varName && !['if', 'else', 'val', 'mem', 'real', 'int', 'bool', 'return'].includes(varName)) {
-        ccMap[cc] = comment || varName.toUpperCase();
+        ccMap[cc] = comment || varName.toUpperCase().replace(/_CC$/, '');
       }
     }
+
+    // Pattern 2: match (c) { 30 -> label = ... }
+    const matchRegex = /(\d+)\s*->\s*\{?\s*(?:val|var)?\s*([a-zA-Z_]\w*)\s*=[^;]+;?\s*\}?\s*(?:\/\/+(.*))?/g;
+    matchRegex.lastIndex = 0;
+    while ((match = matchRegex.exec(vultCode)) !== null) {
+      const cc = parseInt(match[1]);
+      const varName = match[2];
+      const comment = match[3]?.trim();
+      if (varName && !['if', 'else', 'val', 'mem', 'real', 'int', 'bool', 'return'].includes(varName)) {
+        ccMap[cc] = comment || varName.toUpperCase().replace(/_CC$/, '');
+      }
+    }
+
     if (Object.keys(ccMap).length === 0) {
       return { 30: 'SAW/SQR', 31: 'SINE LVL', 32: 'PWM AMT', 35: 'LFO RATE' };
     }
@@ -561,10 +141,10 @@ const App: React.FC = () => {
   }, [code]);
 
   const parseVultInputs = useCallback((vultCode: string) => {
-    const match = vultCode.match(/fun\s+process\s*\(([^)]*)\)/);
+    const match = vultCode.match(/(?:fun|and)\s+process\s*\(([^)]*)\)/);
     if (!match) return [];
     const params = match[1].split(',').map(arg => {
-      const parts = arg.trim().split(':');
+      const parts = arg.trim().split(/\s*:\s*/);
       return parts[0].trim();
     }).filter(n => n.length > 0);
 
@@ -783,7 +363,26 @@ const App: React.FC = () => {
 
     setCode(value);
     localStorage.setItem('vult_session_code', value);
-    setCcLabels(parseVultCCs(value));
+    const newLabels = parseVultCCs(value);
+    setCcLabels(newLabels);
+    
+    // Sync sequencer tracks without resetting existing step data if possible
+    setSeqCCTracks(prev => {
+      const newCCs = Object.keys(newLabels).map(Number);
+      const existingCCs = prev.map(t => t.cc);
+      
+      // If nothing changed in the SET of CCs, just return prev
+      if (newCCs.length === existingCCs.length && newCCs.every(cc => existingCCs.includes(cc))) {
+        return prev;
+      }
+      
+      // Otherwise, rebuild but keep existing steps for matches
+      return newCCs.sort((a,b) => a-b).map(cc => {
+        const existing = prev.find(t => t.cc === cc);
+        return existing || { cc, steps: Array(128).fill(0) };
+      });
+    });
+
     const newInputs = parseVultInputs(value);
     setInputs(prev => (prev.length === newInputs.length && prev.every((v, i) => v.name === newInputs[i].name)) ? prev : newInputs);
     
@@ -847,15 +446,6 @@ const App: React.FC = () => {
     a.download = `${projectName}.vult`;
     a.click();
   };
-
-  const EXPORT_OPTIONS: { value: string; label: string; ext: string; mime: string }[] = [
-    { value: 'c',        label: 'C / C++',              ext: '.cpp',  mime: 'text/x-c' },
-    { value: 'c-pd',     label: 'C / C++ (Pure Data)',  ext: '.cpp',  mime: 'text/x-c' },
-    { value: 'c-teensy', label: 'C / C++ (Teensy)',     ext: '.cpp',  mime: 'text/x-c' },
-    { value: 'js',       label: 'JavaScript',           ext: '.js',   mime: 'text/javascript' },
-    { value: 'lua',      label: 'Lua',                  ext: '.lua',  mime: 'text/x-lua' },
-    { value: 'java',     label: 'Java',                 ext: '.java', mime: 'text/x-java' },
-  ];
 
   const handleExport = async () => {
     const opt = EXPORT_OPTIONS.find(o => o.value === exportTarget);

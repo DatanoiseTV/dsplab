@@ -1,14 +1,18 @@
-import { useState, useEffect, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
-import { Send, Loader2, Settings, Activity, StopCircle, ChevronDown, ChevronRight, Maximize2, Trash2, Copy, Check, Brain, Terminal, MessageSquare, Zap, BookOpen, Sparkles } from 'lucide-react';
+import OpenAI from 'openai';
+import { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import { Send, Loader2, Settings, Activity, StopCircle, ChevronDown, ChevronRight, Maximize2, Trash2, Brain, Terminal, MessageSquare, Zap, BookOpen, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-c';
 import 'prismjs/components/prism-cpp';
 import 'prismjs/components/prism-javascript';
+
+import { CodeBlock } from './components/CodeBlock';
+import { PROVIDER_PRESETS, resolveBaseUrl, resolveFullUrl } from './utils/llmProviders';
+import { getToolsDef } from './utils/llmTools';
 
 export interface LLMPaneHandle {
   /** Programmatically send a message to the agent, as if the user typed it. */
@@ -37,59 +41,13 @@ interface LLMPaneProps {
   systemPrompt: string;
 }
 
-const CodeBlock = ({ code, language, onApply }: { code: string, language?: string, onApply?: (code: string) => void }) => {
-  const [copied, setCopied] = useState(false);
-  const [applied, setApplied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleApply = () => {
-    if (onApply) {
-      onApply(code);
-      setApplied(true);
-      setTimeout(() => setApplied(false), 2000);
-    }
-  };
-
-  const highlighted = useMemo(() => {
-    const lang = language || 'vult';
-    const prismLang = Prism.languages[lang] || Prism.languages.clike;
-    return Prism.highlight(code, prismLang, lang);
-  }, [code, language]);
-
-  return (
-    <div style={{ position: 'relative', margin: '8px 0', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', background: '#111' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', background: 'rgba(255,255,255,0.05)', fontSize: '10px', color: '#888' }}>
-        <span style={{ fontFamily: 'monospace', textTransform: 'uppercase' }}>{language || 'vult'}</span>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={handleCopy} style={{ background: 'transparent', border: 'none', color: copied ? '#00ff00' : '#888', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px' }}>
-            {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'COPIED' : 'COPY'}
-          </button>
-          {onApply && (
-            <button onClick={handleApply} style={{ background: 'transparent', border: 'none', color: applied ? '#00ff00' : 'var(--accent-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 'bold' }}>
-              {applied ? <Check size={12} /> : <Zap size={12} />} {applied ? 'APPLIED' : 'APPLY'}
-            </button>
-          )}
-        </div>
-      </div>
-      <pre style={{ margin: 0, padding: '12px', fontSize: '11px', overflowX: 'auto', background: 'transparent' }}>
-        <code dangerouslySetInnerHTML={{ __html: highlighted }} />
-      </pre>
-    </div>
-  );
-};
-
 type MessagePart = { 
   text?: string; 
   thought?: string; 
   functionCall?: any; 
   functionResponse?: any;
   thought_signature?: string;
-  thoughtSignature?: string; // Handle both cases for API stability
+  thoughtSignature?: string;
 };
 type Message = { role: 'user' | 'model', parts: MessagePart[] };
 
@@ -113,10 +71,48 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
     choices?: {label: string, value: string}[]
   }[]>([]);
 
-  const [provider, setProvider] = useState<'gemini' | 'openai' | 'anthropic'>('gemini');
-  const [endpoint, setEndpoint] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [modelName, setModelName] = useState('gemini-flash-lite-latest');
+  const [activeProvider, setActiveProvider] = useState<string>(() => localStorage.getItem('llm_active_provider') || 'gemini');
+  const [configs, setConfigs] = useState<Record<string, { apiKey: string, model: string, endpoint: string }>>(() => {
+    const saved = localStorage.getItem('llm_configs');
+    const parsed = saved ? JSON.parse(saved) : {};
+    
+    // Merge and ensure all presets are represented
+    const initial: Record<string, any> = { ...parsed };
+    PROVIDER_PRESETS.forEach(p => {
+      if (!initial[p.id]) {
+        initial[p.id] = { 
+          apiKey: '', 
+          model: p.defaultModel, 
+          endpoint: p.endpoint 
+        };
+      }
+    });
+
+    // Migrate old individual keys once
+    if (!saved) {
+      PROVIDER_PRESETS.forEach(p => {
+        const oldKey = localStorage.getItem(`llm_apiKey_${p.id}`);
+        const oldModel = localStorage.getItem(`llm_modelName_${p.id}`);
+        const oldEndpoint = localStorage.getItem(`llm_endpoint_${p.id}`);
+        if (oldKey) initial[p.id].apiKey = oldKey;
+        if (oldModel) initial[p.id].model = oldModel;
+        if (oldEndpoint) initial[p.id].endpoint = oldEndpoint;
+      });
+    }
+
+    return initial;
+  });
+
+  const currentConfig = configs[activeProvider] || configs['gemini'] || { apiKey: '', model: '', endpoint: '' };
+  const currentProviderPreset = PROVIDER_PRESETS.find(p => p.id === activeProvider);
+  
+  // For backwards compatibility in existing logic
+  const provider = activeProvider;
+  const apiKey = currentConfig.apiKey;
+  const modelName = currentConfig.model;
+  // Deep fallback: user config -> preset default -> empty
+  const endpoint = currentConfig.endpoint || currentProviderPreset?.endpoint || "";
+
   const [showSettings, setShowSettings] = useState(false);
   const [expandedThoughts, setExpandedThoughts] = useState<Set<string>>(new Set());
   const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 });
@@ -128,10 +124,10 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
   const [elapsedSession, setElapsedSession] = useState(0);
   
   const [widgetState, setWidgetState] = useState(() => ({
-    width: 360,
-    height: 550,
-    x: typeof window !== 'undefined' ? window.innerWidth - 380 : 0,
-    y: typeof window !== 'undefined' ? window.innerHeight - 570 : 0
+    width: 380,
+    height: 600,
+    x: typeof window !== 'undefined' ? window.innerWidth - 400 : 0,
+    y: typeof window !== 'undefined' ? window.innerHeight - 620 : 0
   }));
 
   const handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -237,14 +233,6 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
   useEffect(() => { codeRef.current = currentCode; }, [currentCode]);
 
   useEffect(() => {
-    const savedProvider = localStorage.getItem('llm_provider') as 'gemini' | 'openai' | 'anthropic';
-    if (savedProvider) setProvider(savedProvider);
-    const savedEndpoint = localStorage.getItem('llm_endpoint');
-    if (savedEndpoint) setEndpoint(savedEndpoint);
-    const savedKey = localStorage.getItem('llm_api_key');
-    if (savedKey) setApiKey(savedKey);
-    const savedModel = localStorage.getItem('llm_model_name');
-    if (savedModel) setModelName(savedModel);
     const savedTokens = localStorage.getItem('llm_tokens');
     if (savedTokens) setTokens(JSON.parse(savedTokens));
 
@@ -303,15 +291,17 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
     scrollToBottom();
   }, [displayMessages, isLoading, status]);
 
-  const handleSaveSettings = (newProvider: 'gemini' | 'openai' | 'anthropic', newEndpoint: string, key: string, model: string) => {
-    setProvider(newProvider);
-    setEndpoint(newEndpoint);
-    setApiKey(key);
-    setModelName(model);
-    localStorage.setItem('llm_provider', newProvider);
-    localStorage.setItem('llm_endpoint', newEndpoint);
-    localStorage.setItem('llm_api_key', key);
-    localStorage.setItem('llm_model_name', model);
+  const updateConfig = (provId: string, patch: Partial<{ apiKey: string, model: string, endpoint: string }>) => {
+    setConfigs(prev => {
+      const next = { ...prev, [provId]: { ...prev[provId], ...patch } };
+      localStorage.setItem('llm_configs', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleSwitchProvider = (id: string) => {
+    setActiveProvider(id);
+    localStorage.setItem('llm_active_provider', id);
   };
 
   const updateTokens = (usage: any) => {
@@ -380,416 +370,6 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
     });
   };
 
-  const getToolsDef = () => {
-    return [
-      {
-        name: "complete_task",
-        description: "Signals that the requested engineering goal is finished and has been verified. You MUST call this to end your autonomous loop. Provide a concise summary of the verification results.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            verification_summary: { type: "STRING", description: "Technical proof that the code works (e.g. 'SNR is 80dB, harmonic peaks verified')." }
-          },
-          required: ["verification_summary"]
-        }
-      },
-      {
-        name: "show_function",
-        description: "Returns the complete source code of a specific function by its name. Use this to inspect implementation details without reading the entire file.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            function_name: { type: "STRING", description: "The name of the function to show." }
-          },
-          required: ["function_name"]
-        }
-      },
-      {
-        name: "delete_function",
-        description: "Removes an entire function definition from the source code by its name.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            function_name: { type: "STRING", description: "The name of the function to delete." }
-          },
-          required: ["function_name"]
-        }
-      },
-      {
-        name: "replace_function",
-        description: "Replaces the entire body of a specific function by its name. This is faster and safer than line-based editing for functional updates.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            function_name: { type: "STRING", description: "The name of the function to replace." },
-            new_code: { type: "STRING", description: "The COMPLETE new definition of the function (starting with fun or and)." }
-          },
-          required: ["function_name", "new_code"]
-        }
-      },
-      {
-        name: "fix_boilerplate",
-        description: "Automatically injects missing mandatory handlers (noteOn, noteOff, controlChange, default) if they are absent from the code.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "update_code",
-        description: "CRITICAL: Overwrites the ENTIRE source code. You MUST provide the complete program including process, noteOn, noteOff etc. NEVER use this for partial snippets; use apply_diff or edit_lines for those.",
-        parameters: {
-          type: "OBJECT",
-          properties: { new_code: { type: "STRING", description: "The COMPLETE new source code for the project." } },
-          required: ["new_code"]
-        }
-      },
-      {
-        name: "edit_lines",
-        description: "Replaces a specific block of lines in the code with new code.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            start_line: { type: "NUMBER", description: "The 1-based line number to start replacing from (inclusive)." },
-            end_line: { type: "NUMBER", description: "The 1-based line number to end replacing at (inclusive)." },
-            new_code: { type: "STRING", description: "The new code to insert in place of those lines." }
-          },
-          required: ["start_line", "end_line", "new_code"]
-        }
-      },
-      {
-        name: "apply_diff",
-        description: "Applies a surgical replacement in the code. Replaces 'old_string' with 'new_string'. Use significant context to avoid ambiguity.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            old_string: { type: "STRING", description: "The exact literal text to find." },
-            new_string: { type: "STRING", description: "The text to replace it with." }
-          },
-          required: ["old_string", "new_string"]
-        }
-      },
-      {
-        name: "grep_search",
-        description: "Searches for a regex pattern in the current code and returns matching lines with numbers.",
-        parameters: {
-          type: "OBJECT",
-          properties: { pattern: { type: "STRING", description: "The regex pattern to search for." } },
-          required: ["pattern"]
-        }
-      },
-      {
-        name: "get_current_code",
-        description: "Retrieves the current Vult code from the editor.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "set_knob",
-        description: "Sets a virtual CC knob value (30-41). Values range from 0 to 127.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            cc: { type: "NUMBER", description: "The CC number (30-41)." },
-            value: { type: "NUMBER", description: "The value (0-127)." }
-          },
-          required: ["cc", "value"]
-        }
-      },
-      {
-        name: "send_midi_cc",
-        description: "Sends a general MIDI CC message (0-127). Values range from 0 to 127.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            cc: { type: "NUMBER", description: "The CC number (0-127)." },
-            value: { type: "NUMBER", description: "The value (0-127)." }
-          },
-          required: ["cc", "value"]
-        }
-      },
-      {
-        name: "trigger_generator",
-        description: "Triggers a laboratory generator (Impulse, Step, Sweep) on a specific input strip.",
-        parameters: {
-          type: "OBJECT",
-          properties: { index: { type: "NUMBER", description: "The input strip index (0-based)." } },
-          required: ["index"]
-        }
-      },
-      {
-        name: "configure_lab_input",
-        description: "Configures a DSP Lab input strip type and parameters.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            index: { type: "NUMBER", description: "The input strip index." },
-            type: { type: "STRING", enum: ["oscillator", "cv", "impulse", "step", "sweep", "test_noise", "silence"], description: "The source type." },
-            freq: { type: "NUMBER", description: "Frequency if oscillator." },
-            oscType: { type: "STRING", enum: ["sine", "sawtooth", "square", "triangle"], description: "Oscillator shape." }
-          },
-          required: ["index", "type"]
-        }
-      },
-      {
-        name: "load_preset",
-        description: "Loads one of the built-in Vult presets.",
-        parameters: {
-          type: "OBJECT",
-          properties: { name: { type: "STRING", description: "The preset name." } },
-          required: ["name"]
-        }
-      },
-      {
-        name: "configure_sequencer",
-        description: "Configures the note roll sequencer. Use this to test patches with melodies.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            bpm: { type: "NUMBER", description: "Tempo in BPM." },
-            playing: { type: "BOOLEAN", description: "Whether the sequencer should be running." },
-            steps: {
-              type: "ARRAY",
-              items: {
-                type: "OBJECT",
-                properties: {
-                  active: { type: "BOOLEAN" },
-                  note: { type: "NUMBER", description: "MIDI note number." }
-                }
-              },
-              description: "Full array of 16 steps."
-            }
-          }
-        }
-      },
-      {
-        name: "get_sequencer_state",
-        description: "Returns the current state of the sequencer (BPM, steps, playing status).",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "list_presets",
-        description: "Returns a list of available preset names.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "get_live_telemetry",
-        description: "Retrieves current values of internal Vult variables. If the state is large, use the 'filter' parameter to find specific modules or variables. Results are capped at 100 by default to ensure performance.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            filter: { type: "STRING", description: "Optional regex pattern to filter keys (e.g. 'osc1' or 'filter')." },
-            limit: { type: "NUMBER", description: "Max number of variables to return (default 100)." }
-          }
-        }
-      },
-      {
-        name: "get_state",
-        description: "Retrieves the value of a specific internal variable by its key path (e.g. 'voice1.env'). Use this for precise verification.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            key: { type: "STRING", description: "The full path of the variable." }
-          },
-          required: ["key"]
-        }
-      },
-      {
-        name: "get_state_history",
-        description: "Retrieves a list of recent values for a specific variable (max 10). Use this to track changes over time, like envelope sweeps or state transitions.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            key: { type: "STRING", description: "The full path of the variable." },
-            count: { type: "NUMBER", description: "Number of historical snapshots to return (default 5, max 10)." }
-          },
-          required: ["key"]
-        }
-      },
-      {
-        name: "get_spectrum_data",
-        description: "Retrieves a snapshot of the current 1024-band frequency spectrum of the output signal. Use this to verify audio activity or filter performance.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "get_peak_frequencies",
-        description: "Analyzes the current spectrum and returns the frequencies (in Hz) with the most energy. Useful for verifying oscillator pitch or resonant peaks.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            count: { type: "NUMBER", description: "Number of peak frequencies to return (default 3)." }
-          }
-        }
-      },
-      {
-        name: "get_harmonics",
-        description: "Analyzes the harmonic content of the output signal. Identifies the fundamental frequency and the relative strength of the first 8 harmonics. Use this to verify waveform shapes (e.g. square vs sawtooth) or filter saturation.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "get_signal_quality",
-        description: "Calculates advanced signal quality metrics including THD+N (Total Harmonic Distortion + Noise), SNR (Signal-to-Noise Ratio), and Peak Level in dBFS. Use this for high-precision technical audio analysis.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "get_audio_metrics",
-        description: "Retrieves real-time audio metrics: Peak Level, RMS, Clipping Count, and Headroom (dB). It will wait the specified duration (in milliseconds) before taking the measurement, allowing audio to process.",
-        parameters: { 
-          type: "OBJECT", 
-          properties: {
-            wait_ms: { type: "NUMBER", description: "Time to wait in milliseconds before measuring (e.g., 500 or 1000). Default is 500." }
-          } 
-        }
-      },
-      {
-        name: "ask_user",
-        description: "Asks the user a question. Can include multiple choice options for quick responses.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            question: { type: "STRING", description: "The question to ask the user." },
-            options: { 
-              type: "ARRAY", 
-              items: { 
-                type: "OBJECT",
-                properties: {
-                  label: { type: "STRING", description: "Display text for the button." },
-                  value: { type: "STRING", description: "Technical value returned to the agent when selected." }
-                }
-              },
-              description: "Optional list of predefined choices for the user."
-            }
-          },
-          required: ["question"]
-        }
-      },      {
-        name: "user_message",
-        description: "Displays a status message or update to the user.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            message: { type: "STRING", description: "The message to display." }
-          },
-          required: ["message"]
-        }
-      },
-      {
-        name: "store_memory",
-        description: "Stores a persistent technical fact, engineering preference, or project-specific detail in your long-term Prompt Memory. This memory persists across sessions and models. Use this to remember user stylistic choices, complex algorithm details, or verified DSP findings.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            fact: { type: "STRING", description: "The specific fact or preference to remember (e.g. 'User prefers 0-1 range for all internal variables')." }
-          },
-          required: ["fact"]
-        }
-      },
-      {
-        name: "get_memory",
-        description: "Retrieves all currently stored persistent memories from your long-term Prompt Memory. Use this at the start of a session or when uncertain about user preferences.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "multi_edit",
-        description: "Applies multiple line-block edits in a single turn. Automatically handles line shifts. Provide edits in any order.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            edits: {
-              type: "ARRAY",
-              items: {
-                type: "OBJECT",
-                properties: {
-                  start_line: { type: "NUMBER", description: "1-based start line." },
-                  end_line: { type: "NUMBER", description: "1-based end line." },
-                  new_code: { type: "STRING", description: "New code for this range." }
-                },
-                required: ["start_line", "end_line", "new_code"]
-              }
-            }
-          },
-          required: ["edits"]
-        }
-      },
-      {
-        name: "set_probes",
-        description: "Configures which internal 'mem' variables should be active in the multi-trace scope (max 6).",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            probes: { type: "ARRAY", items: { type: "STRING" }, description: "List of variable paths (e.g. ['voice1.env', 'lfo_val'])." }
-          },
-          required: ["probes"]
-        }
-      },
-      {
-        name: "list_functions",
-        description: "Parses the current code and returns a list of all defined function signatures (name, parameters, return type).",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "get_vult_reference",
-        description: "Returns a concise technical reference guide for the Vult language (types, syntax, operators, and built-in functions).",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "get_development_plan",
-        description: "Retrieves the currently documented internal development plan. Use this to ensure you are following the agreed-upon strategy.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "set_multiple_knobs",
-        description: "Adjusts multiple laboratory knobs (MIDI CCs) in a single action. Use this for complex parameter setups.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            knobs: {
-              type: "ARRAY",
-              items: {
-                type: "OBJECT",
-                properties: {
-                  cc: { type: "NUMBER", description: "The MIDI CC number (30-41)." },
-                  value: { type: "NUMBER", description: "The value (0.0 to 1.0)." }
-                },
-                required: ["cc", "value"]
-              }
-            }
-          },
-          required: ["knobs"]
-        }
-      },
-      {
-        name: "write_plan",
-        description: "Documents your multi-step plan internally before execution. Use this to break down complex DSP tasks.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            plan: { type: "STRING", description: "The detailed step-by-step development plan." }
-          },
-          required: ["plan"]
-        }
-      },
-      {
-        name: "store_snapshot",
-        description: "Saves a named version of the current code to the history. Use this to create restore points before making risky changes.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            message: { type: "STRING", description: "A descriptive name or comment for this snapshot (like a commit message)." }
-          },
-          required: ["message"]
-        }
-      },
-      {
-        name: "tell",
-        description: "Sends a status update, progress report, or informative message to the user while performing complex tasks.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            message: { type: "STRING", description: "The message to display to the user." }
-          },
-          required: ["message"]
-        }
-      }
-    ];
-  };
-
   const callGeminiStream = async (currentMessages: Message[]) => {
     // Map history to Gemini API format, ensuring each part object 
     // contains ONLY one data field (oneof constraint).
@@ -828,7 +408,11 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
       generationConfig: { temperature: 0.1 }
     };
     abortControllerRef.current = new AbortController();
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`, {
+    const resolvedUrl = endpoint.includes('generativelanguage.googleapis.com') 
+      ? `${endpoint.replace(/\/$/, '')}/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+    const response = await fetch(resolvedUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -845,34 +429,72 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
   };
 
   const callOpenAIStream = async (currentMessages: Message[]) => {
-    const openaiMessages = [
-      { role: "system", content: getFullSystemPrompt() }
-    ];
+    const systemPromptText = getFullSystemPrompt();
+    
+    const openaiMessages: any[] = [];
+    const isLocal = ['lmstudio', 'local'].includes(provider);
+    
+    // 1. Add System Prompt - use 'system' for local compatibility, 'developer' for cloud
+    openaiMessages.push({ 
+      role: isLocal ? "system" : "developer", 
+      content: systemPromptText || "You are a helpful assistant." 
+    });
 
+    // 2. Map conversation history to flat OpenAI schema
     for (const msg of currentMessages) {
       if (msg.role === 'user') {
         let content = "";
         for (const p of msg.parts) {
           if (p.text) content += p.text + "\n";
+          // In official API, tool responses are separate messages. 
+          // For compatibility with simpler bridges, we collapse them into text for now
+          // unless a specific tool-calling loop is active.
           if (p.functionResponse) {
-            content += `Function ${p.functionResponse.name} response: ${JSON.stringify(p.functionResponse.response)}\n`;
+             openaiMessages.push({ 
+               role: 'tool', 
+               tool_call_id: p.functionResponse.id || 'call_default', 
+               content: JSON.stringify(p.functionResponse.response) || "." 
+             });
           }
         }
-        openaiMessages.push({ role: "user", content });
+        // Ensure every user message has non-empty content for strict bridges
+        const userContent = content.trim();
+        if (userContent || openaiMessages[openaiMessages.length-1].role !== 'user') {
+           openaiMessages.push({ role: "user", content: userContent || "." });
+        }
       } else if (msg.role === 'model') {
-        let content = "";
+        const assistantMsg: any = { role: "assistant", content: "" };
+        const toolCalls: any[] = [];
+        
         for (const p of msg.parts) {
-          if (p.text) content += p.text + "\n";
+          if (p.text) assistantMsg.content += p.text + "\n";
           if (p.functionCall) {
-            content += `Called function ${p.functionCall.name} with ${JSON.stringify(p.functionCall.args)}\n`;
+            toolCalls.push({
+              id: p.functionCall.id || `call_${Date.now()}`,
+              type: 'function',
+              function: {
+                name: p.functionCall.name,
+                arguments: JSON.stringify(p.functionCall.args)
+              }
+            });
           }
         }
-        openaiMessages.push({ role: "assistant", content });
+        
+        assistantMsg.content = assistantMsg.content.trim();
+        if (toolCalls.length > 0) {
+           assistantMsg.tool_calls = toolCalls;
+           // If tool calls are present, some models REQUIRE content to be null or empty
+           if (!assistantMsg.content) assistantMsg.content = null; 
+        } else if (!assistantMsg.content) {
+           assistantMsg.content = ".";
+        }
+        
+        openaiMessages.push(assistantMsg);
       }
     }
 
     const oaiTools = getToolsDef().map(t => ({
-      type: "function",
+      type: "function" as const,
       function: {
         name: t.name,
         description: t.description,
@@ -885,31 +507,34 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
     }));
 
     abortControllerRef.current = new AbortController();
-    const url = endpoint || 'http://localhost:11434/v1/chat/completions';
+    const bUrl = resolveBaseUrl(endpoint, provider);
     
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey || 'dummy'}`
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages: openaiMessages,
-        stream: true,
-        tools: oaiTools,
-        temperature: 0.1
-      }),
-      signal: abortControllerRef.current.signal
+    // Vanilla official OpenAI SDK configuration
+    const client = new OpenAI({
+      apiKey: apiKey || 'lm-studio',
+      baseURL: bUrl,
+      dangerouslyAllowBrowser: true,
+      defaultHeaders: {} // Ensure no extra OAI metadata headers for local compatibility
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({ error: { message: response.statusText } }));
-      let msg = err.error?.message || response.statusText;
-      if (response.status === 429) msg = "429: Quota exceeded or rate limited.";
-      if (response.status === 401) msg = "401: Invalid API key.";
-      throw new Error(msg);
-    }    return response.body;
+    try {
+      // Standard Chat Completions API is the universal compatible endpoint for LM Studio
+      const stream = await client.chat.completions.create({
+        model: modelName,
+        messages: openaiMessages as any,
+        stream: true,
+        temperature: 0.1,
+        tools: oaiTools.length > 0 ? oaiTools : undefined,
+        tool_choice: oaiTools.length > 0 ? "auto" : undefined
+      }, {
+        signal: abortControllerRef.current.signal
+      });
+
+      return stream;
+    } catch (err: any) {
+      if (err.name === 'AbortError') return null;
+      throw err;
+    }
   };
 
   const callAnthropicStream = async (currentMessages: Message[]) => {
@@ -947,7 +572,7 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
     }));
 
     abortControllerRef.current = new AbortController();
-    const url = endpoint || 'https://api.anthropic.com/v1/messages';
+    const url = resolveFullUrl(endpoint, provider); 
     
     // Anthropic-specific API settings
     const response = await fetch(url, {
@@ -1127,41 +752,30 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
               catch(e) { console.error("Failed to parse tool args", currentToolCall.argsString); }
             }
           } else {
+            // ALL OpenAI-compatible providers now use the official SDK correctly
             const stream = await callOpenAIStream(currentConversation);
             if (!stream) break;
-            const reader = stream.getReader();
-            const decoder = new TextDecoder();
             let currentToolCall: any = null;
 
-            while (!stopFlagRef.current) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const chunk = decoder.decode(value);
-              const lines = chunk.split('\n');
+            for await (const chunk of (stream as any)) {
+              if (stopFlagRef.current) break;
+              if (chunk.usage) updateTokens(chunk.usage);
               
-              for (const line of lines) {
-                if (line.startsWith('data: ') && line.trim() !== 'data: [DONE]') {
-                  try {
-                    const data = JSON.parse(line.substring(6));
-                    if (data.usage) updateTokens(data.usage);
-                    const delta = data.choices?.[0]?.delta;
-                    if (delta) {
-                      if (delta.content) {
-                        setStatus("Typing...");
-                        if (!currentTextId) currentTextId = addDisplayMsg('assistant', "", undefined, true);
-                        addDisplayMsg('assistant', delta.content, currentTextId, true);
-                        let textPart = modelParts.find(p => p.text !== undefined);
-                        if (!textPart) { textPart = { text: "" }; modelParts.push(textPart); }
-                        textPart.text += delta.content;
-                      }
-                      if (delta.tool_calls) {
-                        for (const tc of delta.tool_calls) {
-                          if (tc.function?.name) { currentToolCall = { name: tc.function.name, argsString: tc.function.arguments || "" }; }
-                          else if (tc.function?.arguments && currentToolCall) { currentToolCall.argsString += tc.function.arguments; }
-                        }
-                      }
-                    }
-                  } catch (e) {}
+              const delta = chunk.choices?.[0]?.delta;
+              if (delta) {
+                if (delta.content) {
+                  setStatus("Typing...");
+                  if (!currentTextId) currentTextId = addDisplayMsg('assistant', "", undefined, true);
+                  addDisplayMsg('assistant', delta.content, currentTextId, true);
+                  let textPart = modelParts.find(p => p.text !== undefined);
+                  if (!textPart) { textPart = { text: "" }; modelParts.push(textPart); }
+                  textPart.text += delta.content;
+                }
+                if (delta.tool_calls) {
+                  for (const tc of delta.tool_calls) {
+                    if (tc.function?.name) { currentToolCall = { name: tc.function.name, argsString: tc.function.arguments || "" }; }
+                    else if (tc.function?.arguments && currentToolCall) { currentToolCall.argsString += tc.function.arguments; }
+                  }
                 }
               }
             }
@@ -1581,25 +1195,25 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
                 vult_syntax_guide: {
                   overview: "Vult is a transcompiler language for high-performance DSP. (V0: Stable classic, V1: Modern beta).",
                   declarations: {
-                    mem: "Persistent state inside functions: 'mem x = 0.0;'. Global mem is INVALID.",
-                    val: "Immutable local: 'val x = 1.0;'",
-                    var: "Mutable local: 'var x = 0.0;'",
-                    constant: "Global constant: 'constant pi = 3.14;' (V1 only)",
-                    fun: "Function: 'fun f(x) { return x; }'",
-                    and: "MANDATORY for state-sharing handlers: 'fun process(x) { ... } and noteOn(n,v,c) { ... }'",
-                    enum: "Enumeration: 'enum Color { Red, Green, Blue }' (V1 only)",
-                    record: "Record/Type: 'type point { val x:real; val y:real; }' (V1 only)"
+                    mem: "Persistent state inside functions: `mem x = 0.0;`. Global mem is INVALID.",
+                    val: "Immutable local: `val x = 1.0;`",
+                    var: "Mutable local: `var x = 0.0;`",
+                    constant: "Global constant: `constant pi = 3.14;` (V1 only)",
+                    fun: "Function: `fun f(x) { return x; }`",
+                    and: "MANDATORY for state-sharing handlers: `fun process(x) { ... } and noteOn(n,v,c) { ... }`",
+                    enum: "Enumeration: `enum Color { Red, Green, Blue }` (V1 only)",
+                    record: "Record/Type: `type point { val x:real; val y:real; }` (V1 only)"
                   },
                   v1_exclusive_features: {
                     pattern_matching: "match (x, y) { 1, 2 -> { f(); } _ -> { g(); } } (Supports tuples and wildcards)",
-                    generic_arrays: "Declaration: 'mem buffer : array(real, 1024);' or param: 'fun f(a:array(real))'. Use 'size(a)' for length.",
-                    iterators: "Loop: 'iter(i, count) { ... }' counts 0 to count-1.",
-                    instance_arrays: "Array of stateful workers: 'mem oscs : array(osc_type, 4);' -> Call as 'oscs[i]:osc(f);'. Note: type name is 'funcname_type'.",
-                    strings: "Type 'string', literals '\"hello\"', concat with '+', 'string(val)' conversion, 'length(s)' for size.",
-                    specialization: "Compile-time params: 'fun add('n : int, x) { return n + x; }'. 'n' must be a literal at call site."
+                    generic_arrays: "Declaration: `mem buffer : array(real, 1024);` or param: `fun f(a:array(real))`. Use `size(a)` for length.",
+                    iterators: "Loop: `iter(i, count) { ... }` counts 0 to count-1.",
+                    instance_arrays: "Array of stateful workers: `mem oscs : array(osc_type, 4);` -> Call as `oscs[i]:osc(f);`. Note: type name is `funcname_type`.",
+                    strings: "Type `string`, literals `\"hello\"`, concat with `+`, `string(val)` conversion, `length(s)` for size.",
+                    specialization: "Compile-time params: `fun add('n : int, x) { return n + x; }`. The 'n parameter must be a literal at call site."
                   },
-                  statement_rules: "STRICT: All statements MUST be assignments ('a=b;') or discards ('_=f();'). Standalone calls or expressions will FAIL.",
-                  logic_operators: "C-style mandatory: &&, ||, ! (Do NOT use 'and', 'or', 'not' as keywords).",
+                  statement_rules: "STRICT: All statements MUST be assignments (`a=b;`) or discards (`_=f();`). Standalone calls like `f(x);` will FAIL the compiler.",
+                  logic_operators: "C-style mandatory: &&, ||, ! (Do NOT use `and`, `or`, `not` as keywords).",
                   math: "abs, exp, log, log10, sin, cos, tan, tanh, sqrt, pow, floor, ceil, clip(x, low, high), string(x), size(array), length(string)"
                 },
                 next_step: "Reference consulted. Ensure your patches follow version-specific syntax and PROCEED IMMEDIATELY."
@@ -1766,17 +1380,26 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
         const data = await response.json();
         idea = data.content?.[0]?.text || "A unique modulation effect.";
       } else {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: modelName,
-            messages: [{ role: 'user', content: inspirationPrompt }],
-            temperature: 0.9
-          })
+        // Generic OpenAI-compatible / LM Studio
+        const client = new OpenAI({
+          apiKey: apiKey || 'lm-studio',
+          baseURL: resolveBaseUrl(endpoint, provider),
+          dangerouslyAllowBrowser: true,
+          fetch: ['lmstudio', 'local'].includes(provider) ? async (url: any, init?: any) => {
+            const headers = new Headers(init?.headers);
+            headers.delete('Authorization');
+            headers.set('Content-Type', 'text/plain');
+            return fetch(url, { ...init, headers });
+          } : undefined
         });
-        const data = await response.json();
-        idea = data.choices?.[0]?.message?.content || "A unique modulation effect.";
+
+        const completion = await client.chat.completions.create({
+          model: modelName,
+          messages: [{ role: 'user', content: inspirationPrompt || "Surprise me with a DSP idea." }],
+          temperature: 0.9
+        });
+
+        idea = completion.choices[0]?.message?.content || "A unique modulation effect.";
       }
 
       finalizeStreamingMsg(msgId);
@@ -1934,22 +1557,25 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
             exit={{ height: 0, opacity: 0 }}
             style={{ overflow: 'hidden', background: '#111', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
           >
-            <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {['gemini', 'anthropic', 'openai'].map(p => (
+             <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                {PROVIDER_PRESETS.map(p => (
                   <button 
-                    key={p}
-                    onClick={() => handleSaveSettings(p as any, endpoint, apiKey, modelName)}
-                    style={{ flex: 1, padding: '6px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', background: provider === p ? 'var(--accent-primary)' : '#222', color: provider === p ? '#000' : '#888', border: 'none', cursor: 'pointer' }}
+                    key={p.id}
+                    onClick={() => handleSwitchProvider(p.id)}
+                    style={{ padding: '6px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', background: activeProvider === p.id ? 'var(--accent-primary)' : '#222', color: activeProvider === p.id ? '#000' : '#888', border: 'none', cursor: 'pointer', transition: 'all 0.2s' }}
                   >
-                    {p.toUpperCase()}
+                    {p.name.split(' ')[0]}
                   </button>
                 ))}
               </div>
-              <input type="password" placeholder="API Key..." value={apiKey} onChange={(e) => handleSaveSettings(provider, endpoint, e.target.value, modelName)} style={{ background: '#000', border: '1px solid #333', color: '#fff', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', outline: 'none' }} />
+              <div style={{ fontSize: '10px', color: '#666', borderBottom: '1px solid #222', paddingBottom: '4px', marginTop: '4px' }}>CONFIGURATION: {PROVIDER_PRESETS.find(p => p.id === activeProvider)?.name}</div>
+              <input type="password" placeholder="API Key..." value={apiKey} onChange={(e) => updateConfig(activeProvider, { apiKey: e.target.value })} style={{ background: '#000', border: '1px solid #333', color: '#fff', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', outline: 'none' }} />
+              <input type="text" placeholder="Base URL (e.g. http://localhost:1234)..." value={endpoint} onChange={(e) => updateConfig(activeProvider, { endpoint: e.target.value })} style={{ background: '#000', border: '1px solid #333', color: '#fff', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', outline: 'none' }} />
+              <div style={{ fontSize: '9px', color: '#444', marginTop: '-4px', paddingLeft: '4px' }}>TGT: {resolveFullUrl(endpoint, provider)}</div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                 <input type="text" placeholder="Model..." value={modelName} onChange={(e) => handleSaveSettings(provider, endpoint, apiKey, e.target.value)} style={{ flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', outline: 'none' }} />
-                 <button onClick={handleClearChat} style={{ padding: '8px', background: '#411', color: '#f55', border: '1px solid #622', borderRadius: '6px', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                 <input type="text" placeholder="Model Name..." value={modelName} onChange={(e) => updateConfig(activeProvider, { model: e.target.value })} style={{ flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', outline: 'none' }} />
+                 <button onClick={handleClearChat} style={{ padding: '8px', background: '#411', color: '#f55', border: '1px solid #622', borderRadius: '6px', cursor: 'pointer' }} title="Clear Chat History"><Trash2 size={16} /></button>
               </div>
               <button 
                 onClick={() => { setTokens({ prompt: 0, completion: 0, total: 0 }); localStorage.removeItem('llm_tokens'); }}
@@ -2029,14 +1655,22 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
                       <ReactMarkdown 
                         remarkPlugins={[remarkGfm]}
                         components={{
+                          p({ children, ...props }) {
+                            return <div {...props} style={{ marginBottom: '1em' }}>{children}</div>;
+                          },
                           code({ node, inline, className, children, ...props }: any) {
                             const match = /language-(\w+)/.exec(className || '');
                             const codeStr = String(children).replace(/\n$/, '');
+                            const sanitizeVult = (c: string) => {
+                              // Robust stripping of leading hallucinated quotes on Vult keywords
+                              return c.trim().replace(/^'(\s*)(fun|and|mem|val|var|match|enum|type|external)/g, '$1$2');
+                            };
+                            const finalCode = sanitizeVult(codeStr);
                             return !inline ? (
                               <CodeBlock 
-                                code={codeStr} 
+                                code={finalCode} 
                                 language={match ? match[1] : undefined} 
-                                onApply={codeStr.includes('fun') || codeStr.includes('and') ? (c) => onUpdateCode(c) : undefined}
+                                onApply={finalCode.includes('fun') || finalCode.includes('and') ? (c) => onUpdateCode(c) : undefined}
                               />
                             ) : (
                               <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: '4px', fontSize: '12px' }} {...props}>
@@ -2137,55 +1771,73 @@ const LLMPane = forwardRef<LLMPaneHandle, LLMPaneProps>(({
           </div>
         )}
         
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <div style={{ flex: 1, position: 'relative' }}>
-            <input 
-              type="text" 
-              value={input} 
-              onChange={(e) => setInput(e.target.value)} 
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                   isLoading ? handleStop() : handleSend();
-                } else if (e.key === 'Enter' && !isLoading && input.trim()) {
-                   handleSend();
-                }
-              }} 
-              placeholder={askUserResolverRef.current ? "Thinking..." : "Message Agent (Cmd+Enter)..."} 
-              style={{ 
-                width: '100%', 
-                background: 'rgba(0,0,0,0.4)', 
-                border: '1px solid rgba(255,255,255,0.1)', 
-                borderRadius: '12px', 
-                padding: '12px 16px', 
-                color: '#fff', 
-                fontSize: '13px', 
-                outline: 'none',
-                transition: 'all 0.2s',
-                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)'
-              }}
-              onFocus={(e) => e.target.style.borderColor = 'var(--accent-primary)'}
-              onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-            />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* Provider Selection Row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 4px' }}>
+             <select 
+               value={activeProvider}
+               onChange={(e) => handleSwitchProvider(e.target.value)}
+               style={{ background: 'transparent', border: 'none', color: '#666', fontSize: '10px', fontWeight: 'bold', outline: 'none', cursor: 'pointer', appearance: 'none', padding: '0' }}
+             >
+               {PROVIDER_PRESETS.map(p => (
+                 <option key={p.id} value={p.id} style={{ background: '#111', color: '#fff' }}>{activeProvider === p.id ? `MODE: ${p.name.toUpperCase()}` : p.name}</option>
+               ))}
+             </select>
+             <span style={{ fontSize: '10px', color: '#333' }}>|</span>
+             <span style={{ fontSize: '10px', color: '#444', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{modelName}</span>
           </div>
-          <motion.button 
-            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            onClick={isLoading ? handleStop : handleSend} 
-            disabled={!isLoading && !input.trim()} 
-            style={{ 
-              background: isLoading ? '#622' : (!input.trim() ? '#222' : 'var(--accent-primary)'), 
-              border: 'none', 
-              borderRadius: '12px', 
-              width: '44px', 
-              height: '44px', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              cursor: (!isLoading && !input.trim()) ? 'not-allowed' : 'pointer', 
-              color: isLoading ? '#f55' : (!input.trim() ? '#444' : '#000'), 
-            }}
-          >
-            {isLoading ? <StopCircle size={20} /> : <Send size={20} />}
-          </motion.button>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input 
+                type="text" 
+                value={input} 
+                onChange={(e) => setInput(e.target.value)} 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                     isLoading ? handleStop() : handleSend();
+                  } else if (e.key === 'Enter' && !isLoading && input.trim()) {
+                     handleSend();
+                  }
+                }} 
+                placeholder={askUserResolverRef.current ? "Thinking..." : "Message Agent (Cmd+Enter)..."} 
+                style={{ 
+                  width: '100%', 
+                  background: 'rgba(0,0,0,0.4)', 
+                  border: '1px solid rgba(255,255,255,0.1)', 
+                  borderRadius: '12px', 
+                  padding: '12px 16px', 
+                  color: '#fff', 
+                  fontSize: '13px', 
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)'
+                }}
+                onFocus={(e) => e.target.style.borderColor = 'var(--accent-primary)'}
+                onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+              />
+            </div>
+            <motion.button 
+              whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+              onClick={isLoading ? handleStop : handleSend} 
+              disabled={!isLoading && !input.trim()} 
+              style={{ 
+                background: isLoading ? '#622' : (!input.trim() ? '#222' : 'var(--accent-primary)'), 
+                border: 'none', 
+                borderRadius: '12px', 
+                width: '44px', 
+                height: '42px', // Precisely match input height
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                cursor: (!isLoading && !input.trim()) ? 'not-allowed' : 'pointer', 
+                color: isLoading ? '#f55' : (!input.trim() ? '#444' : '#000'), 
+                flexShrink: 0
+              }}
+            >
+              {isLoading ? <StopCircle size={20} /> : <Send size={20} />}
+            </motion.button>
+          </div>
         </div>
       </div>
 
