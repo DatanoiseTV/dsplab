@@ -17,6 +17,7 @@ import type { Step } from './Sequencer';
 import { Knob } from './Knob';
 import CommunityPresetsModal from './CommunityPresetsModal';
 import { useCommunityPresets, loadPresetCode } from './useCommunityPresets';
+import JSZip from 'jszip';
 import { PRESETS } from './constants/presets';
 import { SYSTEM_PROMPT_BASE } from './constants/systemPrompt';
 import { EXPORT_OPTIONS } from './constants/exportOptions';
@@ -437,7 +438,22 @@ const App: React.FC = () => {
         body: JSON.stringify(body)
       });
       const data = await response.json();
-      if (data.code) {
+      
+      if (data.files) {
+        const zip = new JSZip();
+        for (const [filename, content] of Object.entries(data.files)) {
+          zip.file(filename, content as string);
+        }
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${projectName.replace(/\s+/g, '_')}.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setExportStatus('Done');
+        setTimeout(() => { setExportStatus(''); setShowExportModal(false); }, 800);
+      } else if (data.code) {
         const blob = new Blob([data.code], { type: opt.mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
