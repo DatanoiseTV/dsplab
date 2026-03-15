@@ -3,6 +3,11 @@
   gap: var(--panel-gap);
   flex-shrink: 0;
   position: relative;
+  overflow: hidden;
+}
+
+.bottom-dock > * {
+  min-height: 0;
 }
 
 .bottom-dock__handle {

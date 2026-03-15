@@ -818,20 +818,12 @@ const App: React.FC = () => {
           </div>
         )}
         <BottomDock>
-          <div style={{ display: 'flex', gap: 8, height: '100%', overflow: 'hidden' }}>
-            <div style={{ flex: '2 1 0', minWidth: 0 }}>
-              <ScopeView getScopeData={() => audioEngineRef.current.getScopeData()} getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null} probes={activeProbes} />
-            </div>
-            <div style={{ flex: '1 1 0', minWidth: 0 }}>
-              <SpectrumView
-                getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
-                getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
-              />
-            </div>
-            <div style={{ flex: '0 0 auto' }}>
-              <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />
-            </div>
-          </div>
+          <ScopeView getScopeData={() => audioEngineRef.current.getScopeData()} getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null} probes={activeProbes} />
+          <SpectrumView
+            getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
+            getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
+          />
+          <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />
         </BottomDock>
       </AppShell>
 
