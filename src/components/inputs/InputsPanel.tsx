@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { useCallback } from 'react';
 import type { InputSource, SourceType } from '../../AudioEngine';
 import { Knob } from '../controls/Knob';
 import { ToggleGroup } from '../controls/ToggleGroup';

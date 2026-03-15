@@ -1,4 +1,3 @@
-import React from 'react';
 import { Play, Square, AudioWaveform } from 'lucide-react';
 import { GhostButton } from '../controls/GhostButton';
 import { ToggleGroup } from '../controls/ToggleGroup';

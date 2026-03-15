@@ -56,18 +56,18 @@ export function StepSequencer({
   onStepsChange,
   bpm,
   onBpmChange,
-  isPlaying,
-  onPlayToggle,
+  isPlaying: _isPlaying,
+  onPlayToggle: _onPlayToggle,
   length,
   onLengthChange,
-  gateLength,
-  onGateLengthChange,
+  gateLength: _gateLength,
+  onGateLengthChange: _onGateLengthChange,
   mode,
   onModeChange,
   drumTracks,
   onDrumTracksChange,
-  ccTracks,
-  onCCTracksChange,
+  ccTracks: _ccTracks,
+  onCCTracksChange: _onCCTracksChange,
   currentStep,
 }: StepSequencerProps) {
   const [activePattern, setActivePattern] = useState(0);
@@ -77,7 +77,7 @@ export function StepSequencer({
   const isDraggingRef = useRef(false);
 
   // Melody note toggle
-  const toggleNote = useCallback(
+  const _toggleNote = useCallback(
     (stepIdx: number, midi: number) => {
       const next = [...steps];
       const step = { ...next[stepIdx] };
