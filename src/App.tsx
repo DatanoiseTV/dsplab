@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { PackageOpen } from 'lucide-react';
 import { AudioEngine } from './AudioEngine';
 import type { InputSource, SourceType } from './AudioEngine';
@@ -28,6 +28,9 @@ import { RightPanel } from './components/layout/RightPanel';
 import EditorPane from './components/editor/EditorPane';
 import { usePanelManager } from './hooks/usePanelManager';
 import type { PanelId } from './hooks/usePanelManager';
+import { useCommandPalette } from './hooks/useCommandPalette';
+import type { Command } from './hooks/useCommandPalette';
+import { CommandPalette } from './components/palette/CommandPalette';
 import './styles/legacy.css';
 
 const App: React.FC = () => {
@@ -641,6 +644,37 @@ const App: React.FC = () => {
 
   const panelManager = usePanelManager(null);
 
+  const paletteCommands: Command[] = useMemo(() => [
+    { id: 'toggle-editor', label: 'Toggle Editor Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('editor') },
+    { id: 'toggle-inputs', label: 'Toggle Inputs Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('inputs') },
+    { id: 'toggle-sequencer', label: 'Toggle Sequencer Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('sequencer') },
+    { id: 'toggle-keyboard', label: 'Toggle MIDI Keyboard Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('keyboard') },
+    { id: 'toggle-presets', label: 'Toggle Presets Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('presets') },
+    { id: 'toggle-ai', label: 'Toggle AI Assistant Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('ai') },
+    { id: 'run', label: 'Run', shortcut: '', category: 'Transport', action: () => { if (!isPlaying) handleTogglePlay(); } },
+    { id: 'stop', label: 'Stop', shortcut: '', category: 'Transport', action: () => { if (isPlaying) { audioEngineRef.current.stop(); setIsPlaying(false); setSeqPlaying(false); } } },
+    { id: 'export', label: 'Export Code', shortcut: '', category: 'Project', action: () => setShowExportModal(true) },
+    { id: 'vult-v0', label: 'Switch to Vult v0', shortcut: '', category: 'Settings', action: () => setVultVersion('v0') },
+    { id: 'vult-v1', label: 'Switch to Vult v1', shortcut: '', category: 'Settings', action: () => setVultVersion('v1') },
+    { id: 'save', label: 'Save Project', shortcut: '⌘S', category: 'Project', action: handleSave },
+    { id: 'download', label: 'Download .vult File', shortcut: '', category: 'Project', action: handleDownload },
+    { id: 'new-project', label: 'New Project', shortcut: '', category: 'Project', action: handleNewProject },
+  ], [isPlaying, handleTogglePlay, handleSave, handleDownload, handleNewProject, panelManager]);
+
+  const commandPalette = useCommandPalette(paletteCommands);
+
+  // Global ⌘K / Ctrl+K listener
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        commandPalette.open();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [commandPalette.open]);
+
   const panelTitles: Record<PanelId, string> = {
     editor: 'Editor',
     inputs: 'Inputs',
@@ -675,7 +709,7 @@ const App: React.FC = () => {
         sampleRate={audioEngineRef.current?.audioContext?.sampleRate || 48000}
         bufferSize={128}
         onExport={() => setShowExportModal(true)}
-        onCommandPalette={() => {}}
+        onCommandPalette={commandPalette.open}
         activePanel={panelManager.activeRightPanel}
         onPanelToggle={(panel: string) => panelManager.togglePanel(panel as PanelId)}
         status={status.includes('Error') || status.includes('Crash') ? 'error' : status === 'Running' ? 'ready' : 'ready'}
@@ -967,6 +1001,15 @@ const App: React.FC = () => {
           communityLoading={communityLoading}
         />
       )}
+
+      <CommandPalette
+        isOpen={commandPalette.isOpen}
+        query={commandPalette.query}
+        onQueryChange={commandPalette.setQuery}
+        commands={commandPalette.filteredCommands}
+        onExecute={commandPalette.execute}
+        onClose={commandPalette.close}
+      />
     </>
   );
 };
