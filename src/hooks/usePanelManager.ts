@@ -1,165 +1,74 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 
-export type PanelId = 'editor' | 'inputs' | 'sequencer' | 'keyboard' | 'presets' | 'ai' | 'settings';
+export type SidebarPanelId = 'inputs' | 'presets' | 'ai' | 'settings';
+export type BottomTabId = 'scope' | 'spectrum' | 'stats' | 'sequencer' | 'keyboard';
 
-interface PanelState {
-  activeRightPanel: PanelId | null;
-  undockedPanels: Set<PanelId>;
+const BOTTOM_TAB_STORAGE_KEY = 'dsplab-bottom-tab';
+
+function loadBottomTab(): BottomTabId {
+  try {
+    const stored = localStorage.getItem(BOTTOM_TAB_STORAGE_KEY);
+    if (stored && ['scope', 'spectrum', 'stats', 'sequencer', 'keyboard'].includes(stored)) {
+      return stored as BottomTabId;
+    }
+  } catch { /* ignore */ }
+  return 'scope';
 }
 
-/** Human-readable names for panels shown in the undocked window. */
-const PANEL_LABELS: Record<PanelId, string> = {
-  editor: 'Editor',
-  inputs: 'Inputs',
-  sequencer: 'Sequencer',
-  keyboard: 'Keyboard',
-  presets: 'Presets',
-  ai: 'AI Assistant',
-  settings: 'Settings',
-};
+export function usePanelManager() {
+  const [activeSidebarPanel, setActiveSidebarPanel] = useState<SidebarPanelId | null>(null);
+  const [activeBottomTab, setActiveBottomTab] = useState<BottomTabId>(loadBottomTab);
+  const [bottomPanelCollapsed, setBottomPanelCollapsed] = useState(false);
 
-/**
- * Build a minimal HTML document for an undocked panel window.
- * This is a placeholder — full React rendering via portals can be added later.
- */
-function buildUndockedHTML(panelId: PanelId): string {
-  const label = PANEL_LABELS[panelId];
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>DSPLab - ${label}</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: #111;
-      color: #ccc;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      gap: 12px;
-    }
-    h1 { font-size: 18px; color: #ff6b35; font-weight: 600; }
-    p { font-size: 13px; color: #888; }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
-      background: rgba(78, 205, 196, 0.15);
-      color: #4ecdc4;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-  </style>
-</head>
-<body>
-  <span class="badge">Undocked</span>
-  <h1>${label}</h1>
-  <p>Panel undocked from main window.</p>
-  <p style="margin-top:8px;font-size:11px;color:#555;">Close this window to re-dock the panel.</p>
-</body>
-</html>`;
-}
-
-export function usePanelManager(defaultPanel: PanelId | null = null) {
-  const [state, setState] = useState<PanelState>({
-    activeRightPanel: defaultPanel,
-    undockedPanels: new Set(),
-  });
-
-  // Track open windows and broadcast channels so we can clean up
-  const windowsRef = useRef<Map<PanelId, Window>>(new Map());
-  const channelsRef = useRef<Map<PanelId, BroadcastChannel>>(new Map());
-
-  const togglePanel = useCallback((panel: PanelId) => {
-    setState((prev) => ({
-      ...prev,
-      activeRightPanel: prev.activeRightPanel === panel ? null : panel,
-    }));
+  const toggleSidebarPanel = useCallback((panel: SidebarPanelId) => {
+    setActiveSidebarPanel(prev => prev === panel ? null : panel);
   }, []);
 
-  const closePanel = useCallback(() => {
-    setState((prev) => ({ ...prev, activeRightPanel: null }));
+  const closeSidebar = useCallback(() => {
+    setActiveSidebarPanel(null);
   }, []);
 
-  const dockPanel = useCallback((panel: PanelId) => {
-    // Close the undocked window if it exists
-    const win = windowsRef.current.get(panel);
-    if (win && !win.closed) {
-      // Remove the beforeunload listener before closing to avoid recursion
-      win.onbeforeunload = null;
-      win.close();
-    }
-    windowsRef.current.delete(panel);
-
-    // Close the broadcast channel
-    const ch = channelsRef.current.get(panel);
-    if (ch) {
-      ch.close();
-      channelsRef.current.delete(panel);
-    }
-
-    setState((prev) => {
-      const next = new Set(prev.undockedPanels);
-      next.delete(panel);
-      return { ...prev, undockedPanels: next, activeRightPanel: panel };
-    });
+  const setBottomTab = useCallback((tab: BottomTabId) => {
+    setActiveBottomTab(tab);
+    setBottomPanelCollapsed(false);
+    try { localStorage.setItem(BOTTOM_TAB_STORAGE_KEY, tab); } catch { /* ignore */ }
   }, []);
 
-  const undockPanel = useCallback((panel: PanelId) => {
-    // Don't open a second window for the same panel
-    const existing = windowsRef.current.get(panel);
-    if (existing && !existing.closed) {
-      existing.focus();
-      return;
-    }
+  const toggleBottomPanel = useCallback(() => {
+    setBottomPanelCollapsed(prev => !prev);
+  }, []);
 
-    // Open a new browser window
-    const win = window.open(
-      '',
-      `dsplab-panel-${panel}`,
-      'width=400,height=600,menubar=no,toolbar=no',
-    );
-
-    if (!win) {
-      // Pop-up blocked — fall back silently
-      return;
-    }
-
-    // Write the placeholder HTML
-    win.document.open();
-    win.document.write(buildUndockedHTML(panel));
-    win.document.close();
-
-    // Set up a BroadcastChannel for future communication
-    const channel = new BroadcastChannel(`dsplab-panel-${panel}`);
-    channelsRef.current.set(panel, channel);
-    windowsRef.current.set(panel, win);
-
-    // When the undocked window is closed, re-dock the panel
-    win.onbeforeunload = () => {
-      dockPanel(panel);
+  const handleActivityBarClick = useCallback((id: string) => {
+    const sidebarPanels: SidebarPanelId[] = ['inputs', 'presets', 'ai', 'settings'];
+    const bottomTabs: Record<string, BottomTabId> = {
+      sequencer: 'sequencer',
+      keyboard: 'keyboard',
     };
 
-    // Update state
-    setState((prev) => {
-      const next = new Set(prev.undockedPanels);
-      next.add(panel);
-      return { ...prev, undockedPanels: next, activeRightPanel: null };
-    });
-  }, [dockPanel]);
+    if (id === 'code') {
+      setActiveSidebarPanel(null);
+      return;
+    }
+
+    if (sidebarPanels.includes(id as SidebarPanelId)) {
+      toggleSidebarPanel(id as SidebarPanelId);
+      return;
+    }
+
+    if (bottomTabs[id]) {
+      setBottomTab(bottomTabs[id]);
+      return;
+    }
+  }, [toggleSidebarPanel, setBottomTab]);
 
   return {
-    activeRightPanel: state.activeRightPanel,
-    undockedPanels: state.undockedPanels,
-    togglePanel,
-    closePanel,
-    undockPanel,
-    dockPanel,
+    activeSidebarPanel,
+    activeBottomTab,
+    bottomPanelCollapsed,
+    toggleSidebarPanel,
+    closeSidebar,
+    setBottomTab,
+    toggleBottomPanel,
+    handleActivityBarClick,
   };
 }

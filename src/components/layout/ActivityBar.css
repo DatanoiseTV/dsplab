@@ -24,19 +24,20 @@
   border-radius: 6px;
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: #666;
   cursor: pointer;
   transition: all var(--transition-fast);
   padding: 0;
 }
 
 .activity-bar__icon:hover {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
 }
 
 .activity-bar__icon--active {
   background: var(--bg-elevated);
-  color: var(--text-secondary);
+  color: var(--text-primary);
   border-left: 2px solid var(--accent-secondary);
 }
 

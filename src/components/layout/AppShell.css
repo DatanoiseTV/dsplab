@@ -20,6 +20,7 @@
   flex-direction: column;
   gap: var(--panel-gap);
   min-width: 0;
+  min-height: 0;
 }
 
 @media (max-width: 768px) {

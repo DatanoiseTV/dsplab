@@ -62,3 +62,10 @@
   color: var(--text-faint);
   user-select: none;
 }
+
+.status-bar__cursor {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-tiny);
+  color: var(--text-muted);
+  user-select: none;
+}

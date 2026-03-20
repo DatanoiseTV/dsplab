@@ -2,10 +2,10 @@ import React from 'react';
 import { TopBar } from './TopBar';
 import { ActivityBar } from './ActivityBar';
 import { StatusBar } from './StatusBar';
+import type { SidebarPanelId, BottomTabId } from '../../hooks/usePanelManager';
 import './AppShell.css';
 
 export interface AppShellProps {
-  // TopBar props
   projectName: string;
   isPlaying: boolean;
   onPlay: () => void;
@@ -16,38 +16,25 @@ export interface AppShellProps {
   bufferSize: number;
   onExport: () => void;
   onCommandPalette: () => void;
-  // ActivityBar props
-  activePanel: string | null;
-  onPanelToggle: (panel: string) => void;
-  // StatusBar props
+  activeSidebarPanel: SidebarPanelId | null;
+  activeBottomTab: BottomTabId;
+  onIconClick: (id: string) => void;
   status: 'ready' | 'compiling' | 'error';
   cpuPercent: number;
   latencyMs: number;
   vultVersion_display?: string;
-  // Content
-  rightPanel?: React.ReactNode;
+  sidebar?: React.ReactNode;
+  bottomPanel?: React.ReactNode;
   children: React.ReactNode;
 }
 
 export function AppShell({
-  projectName,
-  isPlaying,
-  onPlay,
-  onStop,
-  vultVersion,
-  onVultVersionChange,
-  sampleRate,
-  bufferSize,
-  onExport,
-  onCommandPalette,
-  activePanel,
-  onPanelToggle,
-  status,
-  cpuPercent,
-  latencyMs,
-  vultVersion_display = '0.4.15',
-  rightPanel,
-  children,
+  projectName, isPlaying, onPlay, onStop,
+  vultVersion, onVultVersionChange,
+  sampleRate, bufferSize, onExport, onCommandPalette,
+  activeSidebarPanel, activeBottomTab, onIconClick,
+  status, cpuPercent, latencyMs, vultVersion_display = '0.4.15',
+  sidebar, bottomPanel, children,
 }: AppShellProps) {
   return (
     <div className="app-shell">
@@ -64,12 +51,17 @@ export function AppShell({
         onCommandPalette={onCommandPalette}
       />
       <div className="app-shell__body">
-        <ActivityBar activePanel={activePanel} onPanelToggle={onPanelToggle} />
+        <ActivityBar
+          activeSidebarPanel={activeSidebarPanel}
+          activeBottomTab={activeBottomTab}
+          onIconClick={onIconClick}
+        />
+        {sidebar}
         <div className="app-shell__main">
           {children}
         </div>
-        {rightPanel}
       </div>
+      {bottomPanel}
       <StatusBar
         status={status}
         cpuPercent={cpuPercent}

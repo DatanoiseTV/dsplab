@@ -1,10 +1,12 @@
 import React from 'react';
 import { Code2, Disc3, Grid3x3, Music, List, Sparkles, Settings } from 'lucide-react';
+import type { SidebarPanelId, BottomTabId } from '../../hooks/usePanelManager';
 import './ActivityBar.css';
 
 export interface ActivityBarProps {
-  activePanel: string | null;
-  onPanelToggle: (panel: string) => void;
+  activeSidebarPanel: SidebarPanelId | null;
+  activeBottomTab: BottomTabId;
+  onIconClick: (id: string) => void;
 }
 
 const topIcons = [
@@ -16,20 +18,27 @@ const topIcons = [
 ];
 
 const bottomIcons = [
-  { id: 'ai', icon: Sparkles, label: 'AI', dot: true },
+  { id: 'ai', icon: Sparkles, label: 'AI Assistant', dot: true },
   { id: 'settings', icon: Settings, label: 'Settings' },
 ];
 
-export function ActivityBar({ activePanel, onPanelToggle }: ActivityBarProps) {
+export function ActivityBar({ activeSidebarPanel, activeBottomTab, onIconClick }: ActivityBarProps) {
+  const isActive = (id: string) => {
+    if (id === 'code') return activeSidebarPanel === null;
+    if (id === 'sequencer') return activeBottomTab === 'sequencer';
+    if (id === 'keyboard') return activeBottomTab === 'keyboard';
+    return activeSidebarPanel === id;
+  };
+
   const renderIcon = (item: { id: string; icon: React.ComponentType<{ size?: number }>; label: string; dot?: boolean }) => {
     const Icon = item.icon;
-    const isActive = activePanel === item.id;
+    const active = isActive(item.id);
 
     return (
       <button
         key={item.id}
-        className={`activity-bar__icon ${isActive ? 'activity-bar__icon--active' : ''}`}
-        onClick={() => onPanelToggle(item.id)}
+        className={`activity-bar__icon${active ? ' activity-bar__icon--active' : ''}`}
+        onClick={() => onIconClick(item.id)}
         title={item.label}
       >
         <Icon size={16} />

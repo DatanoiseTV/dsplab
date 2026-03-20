@@ -1,3 +1,4 @@
+import { useEditorCursor } from '../../contexts/EditorCursorContext';
 import './StatusBar.css';
 
 export interface StatusBarProps {
@@ -14,29 +15,21 @@ const statusLabels: Record<StatusBarProps['status'], string> = {
 };
 
 export function StatusBar({ status, cpuPercent, latencyMs, vultVersion }: StatusBarProps) {
+  const { cursor } = useEditorCursor();
+
   return (
     <div className="status-bar">
-      {/* Status indicator */}
       <div className="status-bar__status">
         <span className={`status-bar__dot status-bar__dot--${status}`} />
         <span className="status-bar__label">{statusLabels[status]}</span>
       </div>
-
       <div className="divider" style={{ height: 12 }} />
-
-      {/* Metrics */}
       <span className="status-bar__metric">CPU {cpuPercent.toFixed(1)}%</span>
       <span className="status-bar__metric">Latency {latencyMs.toFixed(1)}ms</span>
-
       <div className="status-bar__spacer" />
-
-      {/* Vult version */}
-      <span className="status-bar__version">Vult {vultVersion}</span>
-
+      <span className="status-bar__cursor">Ln {cursor.line}, Col {cursor.column}</span>
       <div className="divider" style={{ height: 12 }} />
-
-      {/* Command palette hint */}
-      <span className="status-bar__cmd">⌘K Command Palette</span>
+      <span className="status-bar__version">Vult {vultVersion}</span>
     </div>
   );
 }
