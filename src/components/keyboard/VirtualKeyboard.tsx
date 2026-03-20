@@ -38,7 +38,7 @@ function midiToNoteName(midi: number): string {
   return `${note}${octave}`;
 }
 
-export function VirtualKeyboard({ onNoteOn, onNoteOff, onCC }: VirtualKeyboardProps) {
+export function VirtualKeyboard({ onNoteOn, onNoteOff, onCC, ccLabels }: VirtualKeyboardProps) {
   const [baseOctave, setBaseOctave] = useState(3);
   const [velocity, setVelocity] = useState(100);
   const [sustain, setSustain] = useState(false);
