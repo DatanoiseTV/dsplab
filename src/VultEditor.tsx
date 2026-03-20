@@ -608,6 +608,8 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
           height="100%"
           defaultLanguage="vult"
           theme="dsplab-dark"
+          beforeMount={setupMonaco}
+          loading={<div style={{ background: '#141414', height: '100%' }} />}
           value={code}
           onChange={handleOnChange}
           onMount={handleEditorDidMount}
