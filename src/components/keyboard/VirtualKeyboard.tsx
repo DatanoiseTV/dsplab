@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Slider } from '../controls/Slider';
 import './VirtualKeyboard.css';
 
@@ -43,6 +43,11 @@ export function VirtualKeyboard({ onNoteOn, onNoteOff, onCC }: VirtualKeyboardPr
   const [sustain, setSustain] = useState(false);
   const [pitchBend, setPitchBend] = useState(8192);
   const [modWheel, setModWheel] = useState(0);
+  const [xyX, setXyX] = useState(64);
+  const [xyY, setXyY] = useState(64);
+  const [xyCcX, setXyCcX] = useState(74); // default: filter cutoff
+  const [xyCcY, setXyCcY] = useState(71); // default: resonance
+  const xyDragging = useRef(false);
   const [pressedNotes, setPressedNotes] = useState<Set<number>>(new Set());
   const pressedKeysRef = useRef<Set<string>>(new Set());
   const sustainedNotesRef = useRef<Set<number>>(new Set());
@@ -159,6 +164,20 @@ export function VirtualKeyboard({ onNoteOn, onNoteOff, onCC }: VirtualKeyboardPr
       onCC(1, Math.round(value));
     },
     [onCC],
+  );
+
+  // XY pad handler
+  const handleXYPointer = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = Math.max(0, Math.min(127, Math.round(((e.clientX - rect.left) / rect.width) * 127)));
+      const y = Math.max(0, Math.min(127, Math.round((1 - (e.clientY - rect.top) / rect.height) * 127)));
+      setXyX(x);
+      setXyY(y);
+      onCC(xyCcX, x);
+      onCC(xyCcY, y);
+    },
+    [onCC, xyCcX, xyCcY],
   );
 
   const handleKeycapDown = useCallback(
@@ -280,18 +299,72 @@ export function VirtualKeyboard({ onNoteOn, onNoteOff, onCC }: VirtualKeyboardPr
         </div>
       </div>
 
-      <div className="vk-rows">
-        {/* Black keys row: W E _ T Y U _ O P (offset to align with piano gaps) */}
-        <div className="vk-row vk-row--black">
-          {BLACK_KEYS.map((label, i) =>
-            renderKeycap(label || `gap${i}`, BLACK_SEMITONES[i], 'black')
-          )}
+      <div className="vk-body">
+        <div className="vk-rows">
+          {/* Black keys row: W E _ T Y U _ O P */}
+          <div className="vk-row vk-row--black">
+            {BLACK_KEYS.map((label, i) =>
+              renderKeycap(label || `gap${i}`, BLACK_SEMITONES[i], 'black')
+            )}
+          </div>
+          {/* White keys row: A S D F G H J K L */}
+          <div className="vk-row vk-row--white">
+            {WHITE_KEYS.map((label, i) =>
+              renderKeycap(label, WHITE_SEMITONES[i], 'white')
+            )}
+          </div>
         </div>
-        {/* White keys row: A S D F G H J K L */}
-        <div className="vk-row vk-row--white">
-          {WHITE_KEYS.map((label, i) =>
-            renderKeycap(label, WHITE_SEMITONES[i], 'white')
-          )}
+
+        {/* XY Pad */}
+        <div className="vk-xypad-wrapper">
+          <div className="vk-xypad-labels">
+            <span className="vk-xypad-cc">
+              X: CC{xyCcX}
+              <input
+                type="number"
+                className="vk-xypad-cc-input"
+                value={xyCcX}
+                min={0}
+                max={127}
+                onChange={(e) => setXyCcX(Number(e.target.value))}
+              />
+            </span>
+            <span className="vk-xypad-cc">
+              Y: CC{xyCcY}
+              <input
+                type="number"
+                className="vk-xypad-cc-input"
+                value={xyCcY}
+                min={0}
+                max={127}
+                onChange={(e) => setXyCcY(Number(e.target.value))}
+              />
+            </span>
+          </div>
+          <div
+            className="vk-xypad"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              xyDragging.current = true;
+              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              handleXYPointer(e);
+            }}
+            onPointerMove={(e) => {
+              if (xyDragging.current) handleXYPointer(e);
+            }}
+            onPointerUp={() => { xyDragging.current = false; }}
+          >
+            {/* Crosshair */}
+            <div
+              className="vk-xypad-cursor"
+              style={{
+                left: `${(xyX / 127) * 100}%`,
+                bottom: `${(xyY / 127) * 100}%`,
+              }}
+            />
+            {/* Grid lines */}
+            <div className="vk-xypad-grid" />
+          </div>
         </div>
       </div>
     </div>
