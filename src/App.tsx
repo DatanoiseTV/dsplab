@@ -779,17 +779,15 @@ const App: React.FC = () => {
             collapsed={panelManager.bottomPanelCollapsed}
             onToggleCollapse={panelManager.toggleBottomPanel}
           >
-            {panelManager.activeBottomTab === 'scope' && (
-              <ScopeView getScopeData={() => audioEngineRef.current.getScopeData()} getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null} probes={activeProbes} />
-            )}
-            {panelManager.activeBottomTab === 'spectrum' && (
-              <SpectrumView
-                getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
-                getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
-              />
-            )}
-            {panelManager.activeBottomTab === 'stats' && (
-              <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />
+            {panelManager.activeBottomTab === 'analysis' && (
+              <div style={{ display: 'flex', flex: 1, gap: 'var(--panel-gap)', minHeight: 0 }}>
+                <ScopeView getScopeData={() => audioEngineRef.current.getScopeData()} getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null} probes={activeProbes} />
+                <SpectrumView
+                  getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
+                  getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
+                />
+                <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />
+              </div>
             )}
             {panelManager.activeBottomTab === 'sequencer' && (
               <StepSequencer

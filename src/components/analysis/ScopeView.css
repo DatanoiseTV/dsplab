@@ -1,5 +1,5 @@
 .scope-view {
-  flex: 3;
+  flex: 1;
   background: var(--bg-surface);
   border-radius: var(--radius-panel);
   display: flex;

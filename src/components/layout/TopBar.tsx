@@ -80,9 +80,9 @@ export function TopBar({
       </div>
 
       {/* Export */}
-      <GhostButton onClick={onExport} title="Export">
-        Export ↓
-      </GhostButton>
+      <button className="topbar__export-btn" onClick={onExport} title="Export">
+        Export
+      </button>
 
       {/* Command palette hint */}
       <button className="topbar__cmd-hint" onClick={onCommandPalette}>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import './BottomPanel.css';
 
-export type BottomTabId = 'scope' | 'spectrum' | 'stats' | 'sequencer' | 'keyboard';
+export type BottomTabId = 'analysis' | 'sequencer' | 'keyboard';
 
 const STORAGE_KEY = 'dsplab-dock-height';
 const MIN_HEIGHT = 80;
@@ -34,9 +34,7 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { id: 'scope', label: 'Scope' },
-  { id: 'spectrum', label: 'Spectrum' },
-  { id: 'stats', label: 'Stats' },
+  { id: 'analysis', label: 'Analysis' },
   { id: 'sequencer', label: 'Sequencer' },
   { id: 'keyboard', label: 'Keyboard' },
 ];

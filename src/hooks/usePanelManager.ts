@@ -1,18 +1,18 @@
 import { useState, useCallback } from 'react';
 
 export type SidebarPanelId = 'inputs' | 'presets' | 'ai' | 'settings';
-export type BottomTabId = 'scope' | 'spectrum' | 'stats' | 'sequencer' | 'keyboard';
+export type BottomTabId = 'analysis' | 'sequencer' | 'keyboard';
 
 const BOTTOM_TAB_STORAGE_KEY = 'dsplab-bottom-tab';
 
 function loadBottomTab(): BottomTabId {
   try {
     const stored = localStorage.getItem(BOTTOM_TAB_STORAGE_KEY);
-    if (stored && ['scope', 'spectrum', 'stats', 'sequencer', 'keyboard'].includes(stored)) {
+    if (stored && ['analysis', 'sequencer', 'keyboard'].includes(stored)) {
       return stored as BottomTabId;
     }
   } catch { /* ignore */ }
-  return 'scope';
+  return 'analysis';
 }
 
 export function usePanelManager() {
