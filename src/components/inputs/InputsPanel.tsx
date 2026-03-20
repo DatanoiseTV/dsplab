@@ -150,18 +150,21 @@ function InputStrip({
 
         {input.type === 'sample' && (
           <div className="inputs-strip__sample">
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={(e) =>
-                e.target.files && onSampleUpload?.(e.target.files[0])
-              }
-              style={{ display: 'none' }}
-              id={`inputs-sample-${index}`}
-            />
-            <label htmlFor={`inputs-sample-${index}`} className="inputs-strip__file-btn">
+            <button
+              className="inputs-strip__file-btn"
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'audio/*';
+                input.onchange = (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (file) onSampleUpload?.(file);
+                };
+                input.click();
+              }}
+            >
               LOAD FILE
-            </label>
+            </button>
             {onTrigger && (
               <button className="inputs-strip__play-btn" onClick={onTrigger} title="Play sample">
                 <Play size={10} />
