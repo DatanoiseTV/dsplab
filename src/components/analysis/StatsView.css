@@ -1,5 +1,6 @@
 .stats-view {
-  flex: 1;
+  flex: 0 0 auto;
+  width: 140px;
   background: var(--bg-surface);
   border-radius: var(--radius-panel);
   display: flex;

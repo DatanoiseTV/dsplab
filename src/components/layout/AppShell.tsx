@@ -18,6 +18,8 @@ export interface AppShellProps {
   onCommandPalette: () => void;
   activeSidebarPanel: SidebarPanelId | null;
   activeBottomTab: BottomTabId;
+  showAI: boolean;
+  keyboardDocked: boolean;
   onIconClick: (id: string) => void;
   status: 'ready' | 'compiling' | 'error';
   cpuPercent: number;
@@ -25,6 +27,8 @@ export interface AppShellProps {
   vultVersion_display?: string;
   sidebar?: React.ReactNode;
   bottomPanel?: React.ReactNode;
+  dockedKeyboard?: React.ReactNode;
+  aiOverlay?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -32,9 +36,9 @@ export function AppShell({
   projectName, isPlaying, onPlay, onStop,
   vultVersion, onVultVersionChange,
   sampleRate, bufferSize, onExport, onCommandPalette,
-  activeSidebarPanel, activeBottomTab, onIconClick,
+  activeSidebarPanel, activeBottomTab, showAI, keyboardDocked, onIconClick,
   status, cpuPercent, latencyMs, vultVersion_display = '0.4.15',
-  sidebar, bottomPanel, children,
+  sidebar, bottomPanel, dockedKeyboard, aiOverlay, children,
 }: AppShellProps) {
   return (
     <div className="app-shell">
@@ -54,6 +58,8 @@ export function AppShell({
         <ActivityBar
           activeSidebarPanel={activeSidebarPanel}
           activeBottomTab={activeBottomTab}
+          showAI={showAI}
+          keyboardDocked={keyboardDocked}
           onIconClick={onIconClick}
         />
         {sidebar}
@@ -61,7 +67,9 @@ export function AppShell({
           {children}
         </div>
       </div>
+      {dockedKeyboard}
       {bottomPanel}
+      {aiOverlay}
       <StatusBar
         status={status}
         cpuPercent={cpuPercent}

@@ -6,6 +6,8 @@ import './ActivityBar.css';
 export interface ActivityBarProps {
   activeSidebarPanel: SidebarPanelId | null;
   activeBottomTab: BottomTabId;
+  showAI: boolean;
+  keyboardDocked: boolean;
   onIconClick: (id: string) => void;
 }
 
@@ -13,20 +15,21 @@ const topIcons = [
   { id: 'code', icon: Code2, label: 'Code Editor' },
   { id: 'inputs', icon: Disc3, label: 'Inputs' },
   { id: 'sequencer', icon: Grid3x3, label: 'Sequencer' },
-  { id: 'keyboard', icon: Music, label: 'Keyboard' },
+  { id: 'keyboard', icon: Music, label: 'Keyboard (Dock)' },
   { id: 'presets', icon: List, label: 'Presets' },
 ];
 
 const bottomIcons = [
-  { id: 'ai', icon: Sparkles, label: 'AI Assistant', dot: true },
+  { id: 'ai', icon: Sparkles, label: 'AI Assistant' },
   { id: 'settings', icon: Settings, label: 'Settings' },
 ];
 
-export function ActivityBar({ activeSidebarPanel, activeBottomTab, onIconClick }: ActivityBarProps) {
+export function ActivityBar({ activeSidebarPanel, activeBottomTab, showAI, keyboardDocked, onIconClick }: ActivityBarProps) {
   const isActive = (id: string) => {
-    if (id === 'code') return activeSidebarPanel === null;
+    if (id === 'code') return activeSidebarPanel === null && !showAI;
     if (id === 'sequencer') return activeBottomTab === 'sequencer';
-    if (id === 'keyboard') return activeBottomTab === 'keyboard';
+    if (id === 'keyboard') return keyboardDocked;
+    if (id === 'ai') return showAI;
     return activeSidebarPanel === id;
   };
 

@@ -86,6 +86,8 @@ const App: React.FC = () => {
   const [selectedMidiInput, setSelectedMidiInput] = useState<string>('all');
 
 
+  const [showAI, setShowAI] = useState(false);
+  const [keyboardDocked, setKeyboardDocked] = useState(false);
   const [midiReady, setMidiReady] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [mobileView, setMobileView] = useState<'editor' | 'lab' | 'panels'>('editor');
@@ -643,7 +645,10 @@ const App: React.FC = () => {
     window.addEventListener('mouseup', handleUp);
   };
 
-  const panelManager = usePanelManager();
+  const panelManager = usePanelManager({
+    onToggleAI: () => setShowAI(prev => !prev),
+    onToggleKeyboard: () => setKeyboardDocked(prev => !prev),
+  });
 
   const paletteCommands: Command[] = useMemo(() => [
     { id: 'toggle-inputs', label: 'Toggle Inputs Panel', shortcut: '', category: 'Panels', action: () => panelManager.toggleSidebarPanel('inputs') },
@@ -668,7 +673,6 @@ const App: React.FC = () => {
   const sidebarTitles: Record<SidebarPanelId, string> = {
     inputs: 'Inputs',
     presets: 'Presets',
-    ai: 'AI Assistant',
     settings: 'Settings',
   };
 
@@ -713,6 +717,8 @@ const App: React.FC = () => {
         onCommandPalette={commandPalette.open}
         activeSidebarPanel={panelManager.activeSidebarPanel}
         activeBottomTab={panelManager.activeBottomTab}
+        showAI={showAI}
+        keyboardDocked={keyboardDocked}
         onIconClick={panelManager.handleActivityBarClick}
         status={status.includes('Error') || status.includes('Crash') ? 'error' : status === 'Running' ? 'ready' : 'ready'}
         cpuPercent={0}
@@ -724,29 +730,6 @@ const App: React.FC = () => {
               title={sidebarTitles[panelManager.activeSidebarPanel] || ''}
               onClose={panelManager.closeSidebar}
             >
-              {panelManager.activeSidebarPanel === 'ai' && (
-                <AIPanel
-                  currentCode={code}
-                  onUpdateCode={handleAgentUpdateCode}
-                  onSetKnob={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
-                  onTriggerGenerator={(idx) => audioEngineRef.current.triggerGenerator(idx)}
-                  onConfigureInput={(idx, config) => updateInput(idx, config)}
-                  onLoadPreset={(name) => loadPreset(name)}
-                  onSaveSnapshot={(msg) => saveSnapshot(msg)}
-                  onSetProbes={(probes) => { setActiveProbes(probes); audioEngineRef.current.setProbes(probes); }}
-                  onConfigureSequencer={(bpm, steps, playing) => { if (bpm !== undefined) setSeqBpm(bpm); if (steps !== undefined) setSeqSteps(steps); if (playing !== undefined) setSeqPlaying(playing); }}
-                  getPresets={() => Object.keys(PRESETS)}
-                  getSequencerState={() => ({ bpm: seqBpm, steps: seqSteps, playing: seqPlaying })}
-                  getTelemetry={() => audioEngineRef.current.getLiveState()}
-                  getTelemetryHistory={() => audioEngineRef.current.getTelemetryHistory()}
-                  getSpectrum={() => Array.from(audioEngineRef.current.getSpectrumData())}
-                  getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
-                  getHarmonics={() => audioEngineRef.current.getHarmonics()}
-                  getSignalQuality={() => audioEngineRef.current.getSignalQualityMetrics()}
-                  getAudioMetrics={() => audioEngineRef.current.getAudioMetrics()}
-                  systemPrompt={SYSTEM_PROMPT_BASE + `\nVULT VERSION CONTEXT: The compiler is currently set to: ${vultVersion === 'v0' ? 'Vult 0.4.15' : 'Vult v1'}.`}
-                />
-              )}
               {panelManager.activeSidebarPanel === 'inputs' && (
                 <InputsPanel
                   inputs={inputs}
@@ -810,15 +793,52 @@ const App: React.FC = () => {
                 currentStep={seqCurrentStep}
               />
             )}
-            {panelManager.activeBottomTab === 'keyboard' && (
+          </BottomPanel>
+        }
+        dockedKeyboard={
+          keyboardDocked ? (
+            <div style={{ flexShrink: 0, background: 'var(--bg-surface)', borderRadius: 'var(--radius-panel)', overflow: 'hidden' }}>
               <VirtualKeyboard
                 onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)}
                 onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)}
                 onCC={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
                 ccLabels={ccLabels}
               />
-            )}
-          </BottomPanel>
+            </div>
+          ) : null
+        }
+        aiOverlay={
+          showAI ? (
+            <div className="ai-overlay">
+              <div className="ai-overlay__header">
+                <span className="ai-overlay__title">AI Assistant</span>
+                <button className="ai-overlay__close" onClick={() => setShowAI(false)}>&times;</button>
+              </div>
+              <div className="ai-overlay__body">
+                <AIPanel
+                  currentCode={code}
+                  onUpdateCode={handleAgentUpdateCode}
+                  onSetKnob={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
+                  onTriggerGenerator={(idx) => audioEngineRef.current.triggerGenerator(idx)}
+                  onConfigureInput={(idx, config) => updateInput(idx, config)}
+                  onLoadPreset={(name) => loadPreset(name)}
+                  onSaveSnapshot={(msg) => saveSnapshot(msg)}
+                  onSetProbes={(probes) => { setActiveProbes(probes); audioEngineRef.current.setProbes(probes); }}
+                  onConfigureSequencer={(bpm, steps, playing) => { if (bpm !== undefined) setSeqBpm(bpm); if (steps !== undefined) setSeqSteps(steps); if (playing !== undefined) setSeqPlaying(playing); }}
+                  getPresets={() => Object.keys(PRESETS)}
+                  getSequencerState={() => ({ bpm: seqBpm, steps: seqSteps, playing: seqPlaying })}
+                  getTelemetry={() => audioEngineRef.current.getLiveState()}
+                  getTelemetryHistory={() => audioEngineRef.current.getTelemetryHistory()}
+                  getSpectrum={() => Array.from(audioEngineRef.current.getSpectrumData())}
+                  getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
+                  getHarmonics={() => audioEngineRef.current.getHarmonics()}
+                  getSignalQuality={() => audioEngineRef.current.getSignalQualityMetrics()}
+                  getAudioMetrics={() => audioEngineRef.current.getAudioMetrics()}
+                  systemPrompt={SYSTEM_PROMPT_BASE + `\nVULT VERSION CONTEXT: The compiler is currently set to: ${vultVersion === 'v0' ? 'Vult 0.4.15' : 'Vult v1'}.`}
+                />
+              </div>
+            </div>
+          ) : null
         }
       >
         <EditorPane

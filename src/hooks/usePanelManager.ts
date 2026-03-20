@@ -1,21 +1,26 @@
 import { useState, useCallback } from 'react';
 
-export type SidebarPanelId = 'inputs' | 'presets' | 'ai' | 'settings';
-export type BottomTabId = 'analysis' | 'sequencer' | 'keyboard';
+export type SidebarPanelId = 'inputs' | 'presets' | 'settings';
+export type BottomTabId = 'analysis' | 'sequencer';
 
 const BOTTOM_TAB_STORAGE_KEY = 'dsplab-bottom-tab';
 
 function loadBottomTab(): BottomTabId {
   try {
     const stored = localStorage.getItem(BOTTOM_TAB_STORAGE_KEY);
-    if (stored && ['analysis', 'sequencer', 'keyboard'].includes(stored)) {
+    if (stored && ['analysis', 'sequencer'].includes(stored)) {
       return stored as BottomTabId;
     }
   } catch { /* ignore */ }
   return 'analysis';
 }
 
-export function usePanelManager() {
+interface PanelManagerOptions {
+  onToggleAI?: () => void;
+  onToggleKeyboard?: () => void;
+}
+
+export function usePanelManager(options: PanelManagerOptions = {}) {
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<SidebarPanelId | null>(null);
   const [activeBottomTab, setActiveBottomTab] = useState<BottomTabId>(loadBottomTab);
   const [bottomPanelCollapsed, setBottomPanelCollapsed] = useState(false);
@@ -39,14 +44,25 @@ export function usePanelManager() {
   }, []);
 
   const handleActivityBarClick = useCallback((id: string) => {
-    const sidebarPanels: SidebarPanelId[] = ['inputs', 'presets', 'ai', 'settings'];
-    const bottomTabs: Record<string, BottomTabId> = {
-      sequencer: 'sequencer',
-      keyboard: 'keyboard',
-    };
+    const sidebarPanels: SidebarPanelId[] = ['inputs', 'presets', 'settings'];
 
     if (id === 'code') {
       setActiveSidebarPanel(null);
+      return;
+    }
+
+    if (id === 'ai') {
+      options.onToggleAI?.();
+      return;
+    }
+
+    if (id === 'keyboard') {
+      options.onToggleKeyboard?.();
+      return;
+    }
+
+    if (id === 'sequencer') {
+      setBottomTab('sequencer');
       return;
     }
 
@@ -54,12 +70,7 @@ export function usePanelManager() {
       toggleSidebarPanel(id as SidebarPanelId);
       return;
     }
-
-    if (bottomTabs[id]) {
-      setBottomTab(bottomTabs[id]);
-      return;
-    }
-  }, [toggleSidebarPanel, setBottomTab]);
+  }, [toggleSidebarPanel, setBottomTab, options]);
 
   return {
     activeSidebarPanel,
