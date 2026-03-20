@@ -128,57 +128,8 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
   }, [markers, diffMode]);
 
   const setupMonaco = (monaco: Monaco) => {
-    if ((window as any).__vult_monaco_setup_v6) return;
-    (window as any).__vult_monaco_setup_v6 = true;
-
-    // Define custom DSPLab theme
-    monaco.editor.defineTheme('dsplab-dark', {
-      base: 'vs-dark',
-      inherit: false,
-      rules: [
-        { token: '',                  foreground: '9cdcfe', background: '141414' },
-        { token: 'keyword',           foreground: 'b07acc' },
-        { token: 'keyword.function',  foreground: 'dcdcaa' },
-        { token: 'type',              foreground: '5ab5ad' },
-        { token: 'variable',          foreground: '9cdcfe' },
-        { token: 'number',            foreground: '8fbf6e' },
-        { token: 'string',            foreground: '8fbf6e' },
-        { token: 'string.escape',     foreground: '8fbf6e' },
-        { token: 'comment',           foreground: '777777', fontStyle: 'italic' },
-        { token: 'operator',          foreground: 'bbbbbb' },
-        { token: 'delimiter',         foreground: 'bbbbbb' },
-        { token: 'annotation',        foreground: 'd4b86a' },
-        { token: 'white',             foreground: 'eeeeee' },
-      ],
-      colors: {
-        'editor.background':                   '#141414',
-        'editor.foreground':                   '#9cdcfe',
-        'editorLineNumber.foreground':         '#4a4a4a',
-        'editorLineNumber.activeForeground':   '#888888',
-        'editor.selectionBackground':          'rgba(90, 181, 173, 0.2)',
-        'editor.lineHighlightBackground':      '#1a1a1a',
-        'editorCursor.foreground':             '#d4754a',
-        'editor.selectionHighlightBackground': 'rgba(90, 181, 173, 0.1)',
-        'editorGutter.background':             '#141414',
-        'editorOverviewRuler.border':          '#282828',
-        'scrollbarSlider.background':          'rgba(119, 119, 119, 0.3)',
-        'scrollbarSlider.hoverBackground':     'rgba(119, 119, 119, 0.5)',
-        'scrollbarSlider.activeBackground':    'rgba(119, 119, 119, 0.7)',
-        'minimap.background':                  '#141414',
-        'editorWidget.background':             '#1a1a1a',
-        'editorWidget.border':                 '#282828',
-        'input.background':                    '#0a0a0a',
-        'input.border':                        '#333333',
-        'input.foreground':                    '#eeeeee',
-        'list.activeSelectionBackground':      '#242424',
-        'list.hoverBackground':                '#1a1a1a',
-        'editorOverviewRuler.errorForeground': 'rgba(212, 117, 74, 0.6)',
-        'editorOverviewRuler.warningForeground': 'rgba(212, 184, 106, 0.6)',
-        'editorError.foreground':              '#d4754a',
-        'editorWarning.foreground':            '#d4b86a',
-        'editor.lineHighlightBorder':          'transparent',
-      },
-    });
+    if ((window as any).__vult_lang_registered) return;
+    (window as any).__vult_lang_registered = true;
 
     if (!monaco.languages.getLanguages().some((l: any) => l.id === 'vult')) {
       monaco.languages.register({ id: 'vult' });
@@ -598,7 +549,7 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
           original={originalCode}
           modified={code}
           language="vult"
-          theme="dsplab-dark"
+          theme="vs-dark"
           onMount={handleDiffMount}
           options={{
             renderSideBySide: true,
@@ -612,9 +563,9 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
         <Editor
           height="100%"
           defaultLanguage="vult"
-          theme="dsplab-dark"
+          theme="vs-dark"
           beforeMount={setupMonaco}
-          loading={<div style={{ background: '#141414', height: '100%' }} />}
+          loading={<div style={{ background: '#1e1e1e', height: '100%' }} />}
           value={code}
           onChange={handleOnChange}
           onMount={handleEditorDidMount}
