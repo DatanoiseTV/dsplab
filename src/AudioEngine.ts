@@ -495,7 +495,7 @@ export class AudioEngine {
     const crestDb = crest > 1.0 ? 20 * Math.log10(crest) : 0;
 
     stats['RMS'] = rmsDb > -100 ? (rmsDb > 0 ? '+' : '') + rmsDb.toFixed(1) + ' dBFS' : '—';
-    stats['Peak'] = peakDb > -100 ? (peakDb > 0 ? 'CLIP +' : '') + peakDb.toFixed(1) + ' dBFS' : '—';
+    stats['Peak'] = peakDb > -100 ? peakDb.toFixed(1) + ' dBFS' : '—';
     stats['Crest'] = crest > 1.0 ? crestDb.toFixed(1) + ' dB' : '—';
     stats['DC'] = Math.abs(dc) > 1e-5 ? (dc * 1000).toFixed(2) + ' m' : '~0';
 
@@ -557,11 +557,12 @@ export class AudioEngine {
         const noisePower = Math.max(0, totalPower - signalPower);
         const harmonicDistortion = Math.max(0, signalPower - fundamentalPower);
         const snr = fundamentalPower > 1e-15 && noisePower > 1e-15 ? 10 * Math.log10(fundamentalPower / noisePower) : (fundamentalPower > 1e-15 ? 120 : 0);
-        const thdnRatio = fundamentalPower > 1e-15 ? (harmonicDistortion + noisePower) / fundamentalPower : 0;
-        const thdnPercent = thdnRatio * 100;
+        // Pure THD: ratio of harmonic power to fundamental (excludes noise)
+        const thdRatio = fundamentalPower > 1e-15 ? harmonicDistortion / fundamentalPower : 0;
+        const thdPercent = thdRatio * 100;
 
         stats['SNR'] = snr > 0.1 ? snr.toFixed(1) + ' dB' : '—';
-        stats['THD+N'] = thdnPercent < 999 ? thdnPercent.toFixed(2) + '%' : '—';
+        stats['THD'] = thdPercent < 999 ? thdPercent.toFixed(2) + '%' : '—';
         stats['F0'] = fundamentalHz + ' Hz';
     }
 

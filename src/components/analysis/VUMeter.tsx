@@ -98,10 +98,10 @@ const VUMeter: React.FC<VUMeterProps> = ({
       const barHeight = state.displayLevel * height;
       if (barHeight > 0) {
         const gradient = ctx.createLinearGradient(0, height, 0, 0);
-        gradient.addColorStop(0, '#4ecdc4');       // bottom (0%)
-        gradient.addColorStop(0.75, '#e5c07b');    // 75%
-        gradient.addColorStop(0.90, '#ff6b35');    // 90-100%
-        gradient.addColorStop(1.0, '#ff6b35');
+        gradient.addColorStop(0, '#5ab5ad');       // bottom (0%)
+        gradient.addColorStop(0.75, '#d4b86a');    // 75%
+        gradient.addColorStop(0.90, '#d4754a');    // 90-100%
+        gradient.addColorStop(1.0, '#d4754a');
 
         ctx.fillStyle = gradient;
         ctx.fillRect(0, height - barHeight, width, barHeight);

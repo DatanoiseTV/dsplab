@@ -78,8 +78,8 @@ const StatsView: React.FC<StatsViewProps> = ({ getDSPStats }) => {
         { label: 'Peak', value: left.Peak || '--' },
         {
           label: 'THD',
-          value: left['THD+N'] || left.THD || '--',
-          good: parsePercent(left['THD+N'] || left.THD) < 1,
+          value: left.THD || '--',
+          good: parsePercent(left.THD) < 1,
         },
         { label: 'SNR', value: left.SNR || '--' },
       ]
