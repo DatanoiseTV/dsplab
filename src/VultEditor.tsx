@@ -128,8 +128,8 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
   }, [markers, diffMode]);
 
   const setupMonaco = (monaco: Monaco) => {
-    if ((window as any).__vult_monaco_setup_v4) return;
-    (window as any).__vult_monaco_setup_v4 = true;
+    if ((window as any).__vult_monaco_setup_v5) return;
+    (window as any).__vult_monaco_setup_v5 = true;
 
     // Define custom DSPLab theme
     monaco.editor.defineTheme('dsplab-dark', {
@@ -172,6 +172,11 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
         'input.foreground':                    '#eeeeee',
         'list.activeSelectionBackground':      '#242424',
         'list.hoverBackground':                '#1a1a1a',
+        'editorOverviewRuler.errorForeground': 'rgba(212, 117, 74, 0.6)',
+        'editorOverviewRuler.warningForeground': 'rgba(212, 184, 106, 0.6)',
+        'editorError.foreground':              '#d4754a',
+        'editorWarning.foreground':            '#d4b86a',
+        'editor.lineHighlightBorder':          'transparent',
       },
     });
 
