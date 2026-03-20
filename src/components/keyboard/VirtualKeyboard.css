@@ -1,8 +1,10 @@
 .vk-container {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   user-select: none;
+  padding: 8px 12px;
+  height: 100%;
 }
 
 /* Header controls */
@@ -10,7 +12,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 2px 4px;
+  flex-shrink: 0;
 }
 
 .vk-octave-selector {
@@ -58,7 +60,7 @@
 .vk-vel-label {
   font-family: var(--font-mono);
   font-size: 7px;
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
 .vk-vel-value {
@@ -98,126 +100,128 @@
   color: var(--text-muted);
 }
 
-/* Body: wheels + keys */
-.vk-body {
+/* Keyboard rows */
+.vk-rows {
   display: flex;
-  align-items: flex-start;
-  gap: 0;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-height: 0;
 }
 
-/* Wheels area */
-.vk-wheels {
+.vk-row {
   display: flex;
-  gap: 2px;
-  padding-right: 12px;
-  flex-shrink: 0;
+  gap: 3px;
+  align-items: stretch;
 }
 
-.vk-wheel {
+.vk-row--upper {
+  padding-left: 16px;
+}
+
+.vk-row--lower {
+  padding-left: 0;
+}
+
+/* Individual keycap */
+.vk-keycap {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  min-width: 36px;
+  flex: 1;
+  max-width: 56px;
+  height: 40px;
+  border-radius: 4px;
+  cursor: pointer;
+  touch-action: none;
+  transition: all 0.06s ease;
+  font-family: var(--font-ui);
+  border: 1px solid var(--border-strong);
 }
 
-.vk-wheel-label {
-  font-family: var(--font-mono);
-  font-size: 7px;
-  color: var(--text-faint);
-  text-transform: uppercase;
+/* White key keycap (light) */
+.vk-keycap--white {
+  background: #2a2a2a;
+  color: var(--text-secondary);
+}
+
+.vk-keycap--white:hover {
+  background: #333;
+}
+
+.vk-keycap--white.pressed {
+  background: var(--accent-secondary);
+  color: var(--bg-base);
+  border-color: var(--accent-secondary);
+  box-shadow: 0 0 8px rgba(90, 181, 173, 0.3);
+}
+
+/* Black key keycap (dark) */
+.vk-keycap--black {
+  background: #0e0e0e;
+  color: var(--text-muted);
+  border-color: #222;
+}
+
+.vk-keycap--black:hover {
+  background: #1a1a1a;
+}
+
+.vk-keycap--black.pressed {
+  background: var(--accent-primary);
+  color: var(--bg-base);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 8px rgba(212, 117, 74, 0.3);
+}
+
+/* Spacer for missing black keys (E-F, B-C gaps) */
+.vk-keycap--spacer {
+  background: transparent;
+  border: 1px dashed var(--border-subtle);
+  cursor: default;
+  opacity: 0.3;
+}
+
+/* Key letter */
+.vk-keycap__letter {
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1;
 }
 
-/* Piano keys area */
-.vk-keys-wrapper {
-  flex: 1;
-  min-width: 0;
-  position: relative;
+/* Note label under the letter */
+.vk-keycap__note {
+  font-size: 7px;
+  font-family: var(--font-mono);
+  opacity: 0.5;
+  line-height: 1;
+  margin-top: 2px;
 }
 
-.vk-keys {
+.vk-keycap.pressed .vk-keycap__note {
+  opacity: 0.8;
+}
+
+/* Pitch/Mod wheels compact */
+.vk-wheels-compact {
   display: flex;
-  position: relative;
-  height: 55px;
+  gap: 8px;
+  margin-left: auto;
+  align-items: center;
 }
 
-.vk-white-key {
-  flex: 1;
-  position: relative;
-  background: linear-gradient(to bottom, #e0e0e0, #c8c8c8 90%, #b0b0b0);
-  border: 1px solid #999;
-  border-top: none;
-  border-radius: 0 0 3px 3px;
-  cursor: pointer;
-  touch-action: none;
-  z-index: 1;
-  transition: background 0.05s;
+.vk-wheel-compact {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.vk-white-key:not(:first-child) {
-  border-left: none;
-}
-
-.vk-white-key.pressed {
-  background: linear-gradient(to bottom, #b0b0b0, #a0a0a0 90%, #909090);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
-  border-bottom: 3px solid var(--accent-secondary);
-}
-
-.vk-black-key {
-  position: absolute;
-  top: 0;
-  width: 0;
-  z-index: 2;
-  cursor: pointer;
-  touch-action: none;
-}
-
-.vk-black-key-inner {
-  position: absolute;
-  top: 0;
-  left: -50%;
-  width: 100%;
-  height: 55%;
-  background: linear-gradient(to bottom, #2a2a2a, #1a1a1a 85%, #111);
-  border-radius: 0 0 3px 3px;
-  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.5);
-  pointer-events: auto;
-}
-
-/* The black key hit area is on the inner element */
-.vk-black-key.pressed .vk-black-key-inner {
-  background: linear-gradient(to bottom, #3a3a3a, #2a2a2a 85%, #222);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
-  border-bottom: 3px solid var(--accent-primary);
-}
-
-/* C note labels */
-.vk-c-label {
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  transform: translateX(-50%);
+.vk-wheel-compact__label {
   font-family: var(--font-mono);
   font-size: 7px;
-  color: var(--text-tertiary);
-  pointer-events: none;
-  line-height: 1;
-}
-
-/* Keyboard mapping hints */
-.vk-key-hint {
-  position: absolute;
-  top: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: var(--font-mono);
-  font-size: 7px;
-  color: var(--text-faint);
-  pointer-events: none;
-  line-height: 1;
-}
-
-.vk-black-key .vk-key-hint {
-  color: rgba(255, 255, 255, 0.15);
+  color: var(--text-muted);
+  text-transform: uppercase;
 }
