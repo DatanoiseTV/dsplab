@@ -100,6 +100,19 @@
   color: var(--text-muted);
 }
 
+/* Shortcut hints */
+.vk-shortcuts {
+  display: flex;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.vk-shortcut-hint {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  color: var(--text-muted);
+}
+
 /* Keyboard rows */
 .vk-rows {
   display: flex;
@@ -115,11 +128,11 @@
   align-items: stretch;
 }
 
-.vk-row--upper {
-  padding-left: 16px;
+.vk-row--black {
+  padding-left: 22px;
 }
 
-.vk-row--lower {
+.vk-row--white {
   padding-left: 0;
 }
 
