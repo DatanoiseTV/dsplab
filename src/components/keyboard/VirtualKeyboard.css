@@ -309,6 +309,15 @@
   pointer-events: none;
 }
 
+/* CC Knobs row */
+.vk-cc-row {
+  display: flex;
+  gap: 12px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
 .vk-xypad-cursor {
   position: absolute;
   width: 10px;

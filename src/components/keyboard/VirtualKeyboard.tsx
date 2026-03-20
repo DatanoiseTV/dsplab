@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Slider } from '../controls/Slider';
+import { Knob } from '../controls/Knob';
 import './VirtualKeyboard.css';
 
 interface VirtualKeyboardProps {
@@ -48,6 +49,7 @@ export function VirtualKeyboard({ onNoteOn, onNoteOff, onCC }: VirtualKeyboardPr
   const [xyCcX, setXyCcX] = useState(74); // default: filter cutoff
   const [xyCcY, setXyCcY] = useState(71); // default: resonance
   const xyDragging = useRef(false);
+  const [ccValues, setCcValues] = useState<Record<number, number>>({});
   const [pressedNotes, setPressedNotes] = useState<Set<number>>(new Set());
   const pressedKeysRef = useRef<Set<string>>(new Set());
   const sustainedNotesRef = useRef<Set<number>>(new Set());
@@ -178,6 +180,14 @@ export function VirtualKeyboard({ onNoteOn, onNoteOff, onCC }: VirtualKeyboardPr
       onCC(xyCcY, y);
     },
     [onCC, xyCcX, xyCcY],
+  );
+
+  const handleCCChange = useCallback(
+    (cc: number, value: number) => {
+      setCcValues(prev => ({ ...prev, [cc]: value }));
+      onCC(cc, value);
+    },
+    [onCC],
   );
 
   const handleKeycapDown = useCallback(
@@ -367,6 +377,28 @@ export function VirtualKeyboard({ onNoteOn, onNoteOff, onCC }: VirtualKeyboardPr
           </div>
         </div>
       </div>
+
+      {/* CC Knobs — dynamically generated from ccLabels */}
+      {ccLabels && Object.keys(ccLabels).length > 0 && (
+        <div className="vk-cc-row">
+          {Object.keys(ccLabels)
+            .sort((a, b) => parseInt(a) - parseInt(b))
+            .map((ccStr) => {
+              const cc = parseInt(ccStr);
+              return (
+                <Knob
+                  key={cc}
+                  label={`[${cc}] ${ccLabels[cc]}`}
+                  value={ccValues[cc] ?? 64}
+                  min={0}
+                  max={127}
+                  size="compact"
+                  onChange={(val) => handleCCChange(cc, val)}
+                />
+              );
+            })}
+        </div>
+      )}
     </div>
   );
 }
