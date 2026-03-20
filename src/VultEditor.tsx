@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import type { Monaco } from '@monaco-editor/react';
+import { registerVultLanguageFeatures } from './vultLanguageFeatures';
 
 export interface VultEditorHandle {
   /** Insert text at the current cursor position. */
@@ -355,6 +356,8 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
       }
     });
 
+    // Register LSP-style features (go-to-definition, signature help, document symbols, enhanced hover)
+    registerVultLanguageFeatures(monaco);
   };
 
   // Helper: get selected text, or the whole current function, or whole file
