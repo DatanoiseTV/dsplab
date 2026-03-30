@@ -259,9 +259,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
       try {
         const requestData = JSON.parse(body);
         const bridgePath = path.join(appResourcesPath, 'compiler', 'vult-compiler-bridge.cjs');
-        const child = spawn('node', ['--stack-size=1000000', bridgePath], {
+        // In packaged Electron, 'node' isn't on PATH. Use Electron's own
+        // binary with ELECTRON_RUN_AS_NODE=1 to act as a plain Node process.
+        const nodeBin = process.execPath;
+        const child = spawn(nodeBin, ['--stack-size=1000000', bridgePath], {
           env: {
             ...process.env,
+            ELECTRON_RUN_AS_NODE: '1',
             VULT_SANDBOX:        'true',
             VULT_SANDBOX_DIR:    sandboxWorkdir,
             VULT_ALLOW_EXTERNAL: 'false',
