@@ -129,10 +129,18 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
   const frameRef = useRef(0);
 
   const [heightScale, setHeightScale] = useState(0.7);
+  const heightScaleRef = useRef(0.7);
+  heightScaleRef.current = heightScale;
   const [bins, setBins] = useState(160);
   const camRef = useRef({ rotX: 0.6, rotY: -0.5, zoom: 1.2 });
   const draggingRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
+
+  // Stable refs for render loop (avoids effect re-runs)
+  const getSpectrumRef = useRef(getSpectrumData);
+  getSpectrumRef.current = getSpectrumData;
+  const downsampleRef = useRef(downsample);
+  downsampleRef.current = downsample;
 
   // Ring buffer state (shared via refs for perf)
   const writeRowRef = useRef(0);
@@ -163,7 +171,18 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
     lastMouseRef.current = { x: e.clientX, y: e.clientY };
   }, []);
   const onMouseUp = useCallback(() => { draggingRef.current = false; }, []);
-  const onWheel = useCallback((e: React.WheelEvent) => { e.preventDefault(); camRef.current.zoom = Math.max(0.4, Math.min(3, camRef.current.zoom - e.deltaY * 0.002)); }, []);
+
+  // Native wheel listener (passive: false) so we can preventDefault
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      camRef.current.zoom = Math.max(0.4, Math.min(3, camRef.current.zoom - e.deltaY * 0.002));
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
 
   /* WebGL */
   useEffect(() => {
@@ -261,9 +280,9 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
       // Capture new row
       frameRef.current++;
       if (frameRef.current % CAPTURE_EVERY === 0) {
-        const raw = getSpectrumData();
+        const raw = getSpectrumRef.current();
         if (raw.length > 0 && texDataRef.current) {
-          const row = downsample(raw, bins);
+          const row = downsampleRef.current(raw, bins);
           const wr = writeRowRef.current;
           // Write into ring buffer
           texDataRef.current.set(row, wr * bins);
@@ -276,7 +295,7 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
       }
 
       const cam = camRef.current;
-      const hs = heightScale;
+      const hs = heightScaleRef.current;
 
       // MVP
       const proj = m4P(0.8, w/h, 0.1, 20);
@@ -340,7 +359,10 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
 
     rafRef.current = requestAnimationFrame(render);
     return () => { cancelAnimationFrame(rafRef.current); gl.deleteProgram(meshProg); gl.deleteProgram(lineProg); gl.deleteTexture(tex); };
-  }, [getSpectrumData, downsample, heightScale, bins]);
+  // Only rebuild GL context when bins changes (new mesh + texture size needed)
+  // heightScale and camera are read from refs inside the render loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bins]);
 
   return (
     <div className="waterfall3d-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -363,7 +385,7 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
         </div>
         <div className="waterfall3d-body" ref={containerRef}
           onMouseDown={onMouseDown} onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp} onMouseLeave={onMouseUp} onWheel={onWheel}>
+          onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
           <canvas ref={canvasRef} className="waterfall3d-canvas" />
           <canvas ref={overlayRef} className="waterfall3d-canvas waterfall3d-overlay-canvas" />
           <div className="waterfall3d-hint">Drag to rotate · Scroll to zoom</div>
