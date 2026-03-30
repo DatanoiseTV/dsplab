@@ -32,7 +32,8 @@
 .editor-pane__tab--active {
   background: var(--bg-surface);
   color: var(--text-secondary);
-  border-bottom: 2px solid var(--accent-secondary);
+  border-top: 2px solid var(--accent-secondary);
+  border-bottom: none;
 }
 
 .editor-pane__tab-close {
@@ -45,12 +46,6 @@
   color: var(--text-tertiary);
 }
 
-.editor-pane__cursor-pos {
-  margin-left: auto;
-  font-size: var(--font-size-tiny);
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-}
 
 .editor-pane__editor {
   flex: 1;

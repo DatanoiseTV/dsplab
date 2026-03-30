@@ -1,8 +1,12 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import './SpectrumView.css';
 
 interface SpectrumViewProps {
   getSpectrumData: () => Uint8Array;
+  getInputScopeData?: () => Float32Array;
+  showInput?: boolean;
+  onShowInputChange?: (show: boolean) => void;
+  onOpen3D?: () => void;
   getPeakFrequencies: (count?: number) => { energy: number; frequency: number }[];
   sampleRate?: number;
 }
@@ -50,8 +54,67 @@ function formatFreqFull(freq: number): string {
   return `${Math.round(freq)} Hz`;
 }
 
+const INPUT_SPECTRUM_COLOR = 'rgba(150,150,150,0.5)';
+
+/* Minimal radix-2 FFT for input spectrum overlay */
+function fftMagnitude(signal: Float32Array, size: number): Float32Array {
+  const n = size;
+  const real = new Float32Array(n);
+  const imag = new Float32Array(n);
+
+  // Apply Hann window and copy
+  for (let i = 0; i < n; i++) {
+    const w = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (n - 1)));
+    real[i] = (i < signal.length ? signal[i] : 0) * w;
+  }
+
+  // Bit-reversal permutation
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [real[i], real[j]] = [real[j], real[i]];
+      [imag[i], imag[j]] = [imag[j], imag[i]];
+    }
+  }
+
+  // Cooley-Tukey
+  for (let len = 2; len <= n; len <<= 1) {
+    const halfLen = len >> 1;
+    const angle = (-2 * Math.PI) / len;
+    const wR = Math.cos(angle);
+    const wI = Math.sin(angle);
+    for (let i = 0; i < n; i += len) {
+      let curR = 1, curI = 0;
+      for (let j = 0; j < halfLen; j++) {
+        const tR = curR * real[i + j + halfLen] - curI * imag[i + j + halfLen];
+        const tI = curR * imag[i + j + halfLen] + curI * real[i + j + halfLen];
+        real[i + j + halfLen] = real[i + j] - tR;
+        imag[i + j + halfLen] = imag[i + j] - tI;
+        real[i + j] += tR;
+        imag[i + j] += tI;
+        const newR = curR * wR - curI * wI;
+        curI = curR * wI + curI * wR;
+        curR = newR;
+      }
+    }
+  }
+
+  // Magnitude (first half = positive frequencies)
+  const mag = new Float32Array(n >> 1);
+  for (let i = 0; i < mag.length; i++) {
+    mag[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]) / n;
+  }
+  return mag;
+}
+
 const SpectrumView: React.FC<SpectrumViewProps> = ({
   getSpectrumData,
+  getInputScopeData,
+  showInput = false,
+  onShowInputChange,
+  onOpen3D,
   getPeakFrequencies,
   sampleRate = 48000,
 }) => {
@@ -64,6 +127,34 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
   const gridCanvasRef = useRef<OffscreenCanvas | null>(null);
   const gridDirtyRef = useRef(true);
   const f0Ref = useRef<HTMLSpanElement>(null);
+  const [showWaterfall, setShowWaterfall] = useState(false);
+  const waterfallRef = useRef<HTMLCanvasElement | null>(null);
+  const waterfallRowRef = useRef(0);
+
+  /* Waterfall color map: inferno-style (black → indigo → red-orange → yellow → white)
+     Perceptually uniform, dark-background friendly, standard for spectrograms */
+  const CMAP: [number, number, number][] = [
+    [0, 0, 4],       // 0.00 — black
+    [22, 11, 57],     // 0.15 — deep indigo
+    [66, 10, 104],    // 0.30 — purple
+    [120, 28, 109],   // 0.45 — magenta
+    [165, 54, 84],    // 0.55 — warm rose
+    [208, 90, 47],    // 0.70 — burnt orange
+    [237, 141, 23],   // 0.82 — amber
+    [251, 201, 50],   // 0.92 — yellow
+    [252, 255, 164],  // 1.00 — pale yellow-white
+  ];
+  const CMAP_STOPS = [0, 0.15, 0.30, 0.45, 0.55, 0.70, 0.82, 0.92, 1.0];
+
+  function dbToColor(dB: number): string {
+    const norm = Math.max(0, Math.min(1, (dB - MIN_DB) / DB_RANGE));
+    // Find segment
+    let i = 0;
+    while (i < CMAP_STOPS.length - 2 && norm > CMAP_STOPS[i + 1]) i++;
+    const t = (norm - CMAP_STOPS[i]) / (CMAP_STOPS[i + 1] - CMAP_STOPS[i]);
+    const a = CMAP[i], b = CMAP[i + 1];
+    return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
+  }
 
   /* Build offscreen grid canvas */
   const drawGrid = useCallback((width: number, height: number, dpr: number) => {
@@ -99,7 +190,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
     ctx.font = '9px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillStyle = '#333333';
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
 
     /* Frequency labels along bottom */
     GRID_FREQS.forEach((freq) => {
@@ -107,13 +198,19 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
       ctx.fillText(formatFreq(freq), x, plotH + 4);
     });
 
-    /* dB labels along left */
+    /* dBFS labels along left */
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     for (let dB = MAX_DB; dB >= MIN_DB; dB -= DB_STEP) {
       const y = dbToY(dB, plotH);
       ctx.fillText(`${dB}`, PAD_LEFT - 4, y);
     }
+
+    /* dBFS unit at top */
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillText('dBFS', 2, 2);
 
     return oc;
   }, []);
@@ -184,6 +281,41 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
       const nyquist = sampleRate / 2;
       const fftSize = binCount * 2; // getByteFrequencyData returns fftSize/2 bins
 
+      /* Waterfall — drawn BEHIND spectrum so the trace overlays it */
+      if (showWaterfall && binCount > 0) {
+        if (!waterfallRef.current) {
+          waterfallRef.current = document.createElement('canvas');
+        }
+        const wfCanvas = waterfallRef.current;
+        if (wfCanvas.width !== Math.ceil(plotW) || wfCanvas.height !== plotH) {
+          wfCanvas.width = Math.ceil(plotW);
+          wfCanvas.height = plotH;
+        }
+        const wfCtx = wfCanvas.getContext('2d');
+        if (wfCtx) {
+          // Scroll up by 1 pixel
+          wfCtx.drawImage(wfCanvas, 0, 0, wfCanvas.width, wfCanvas.height, 0, -1, wfCanvas.width, wfCanvas.height);
+
+          // Draw new row at bottom — use linear interpolation between bins
+          const rowY = wfCanvas.height - 1;
+          for (let px = 0; px < wfCanvas.width; px++) {
+            const freq = xToFreq(px, plotW);
+            const binF = (freq / sampleRate) * fftSize;
+            const binLo = Math.floor(binF);
+            const binHi = Math.min(binLo + 1, binCount - 1);
+            if (binLo < 1 || binHi >= binCount) continue;
+            const frac = binF - binLo;
+            const val = spectrumData[binLo] * (1 - frac) + spectrumData[binHi] * frac;
+            const dB = (val / 255) * DB_RANGE + MIN_DB;
+            wfCtx.fillStyle = dbToColor(dB);
+            wfCtx.fillRect(px, rowY, 1, 1);
+          }
+
+          // Composite behind everything else
+          ctx.drawImage(wfCanvas, PAD_LEFT, 0, plotW, plotH);
+        }
+      }
+
       if (binCount > 0) {
         /* Peak hold update */
         if (!peakHoldRef.current || peakHoldRef.current.length !== binCount) {
@@ -232,10 +364,15 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
         ctx.lineTo(PAD_LEFT, plotH);
         ctx.closePath();
 
-        /* Fill gradient */
+        /* Fill gradient — lighter when waterfall is active so it shows through */
         const grad = ctx.createLinearGradient(0, 0, 0, plotH);
-        grad.addColorStop(0, 'rgba(78,205,196,0.40)');
-        grad.addColorStop(1, 'rgba(78,205,196,0.05)');
+        if (showWaterfall) {
+          grad.addColorStop(0, 'rgba(78,205,196,0.12)');
+          grad.addColorStop(1, 'rgba(78,205,196,0.02)');
+        } else {
+          grad.addColorStop(0, 'rgba(78,205,196,0.40)');
+          grad.addColorStop(1, 'rgba(78,205,196,0.05)');
+        }
         ctx.fillStyle = grad;
         ctx.fill();
 
@@ -254,6 +391,30 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
         ctx.strokeStyle = 'rgba(78,205,196,0.80)';
         ctx.lineWidth = 1.5;
         ctx.stroke();
+
+        /* Input spectrum overlay */
+        if (showInput && getInputScopeData) {
+          const inputBuf = getInputScopeData();
+          if (inputBuf && inputBuf.length >= 4096) {
+            const fftSize2 = 4096;
+            const mag = fftMagnitude(inputBuf.subarray(inputBuf.length - fftSize2), fftSize2);
+            ctx.beginPath();
+            let inStarted = false;
+            for (let i = 1; i < mag.length; i++) {
+              const freq = (i / fftSize2) * sampleRate;
+              if (freq < MIN_FREQ || freq > MAX_FREQ) continue;
+              const x = PAD_LEFT + freqToX(freq, plotW);
+              // Convert to dB: 20*log10(mag), with floor
+              const magDb = mag[i] > 1e-10 ? 20 * Math.log10(mag[i]) : MIN_DB;
+              const y = dbToY(Math.max(MIN_DB, magDb), plotH);
+              if (!inStarted) { ctx.moveTo(x, y); inStarted = true; }
+              else ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = INPUT_SPECTRUM_COLOR;
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+          }
+        }
 
         /* Peak hold stroke */
         ctx.beginPath();
@@ -334,7 +495,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [getSpectrumData, getPeakFrequencies, sampleRate, drawGrid]);
+  }, [getSpectrumData, getInputScopeData, showInput, getPeakFrequencies, sampleRate, drawGrid, showWaterfall]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -352,6 +513,26 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
     <div className="spectrum-view">
       <div className="spectrum-view__header">
         <span className="spectrum-view__title">SPECTRUM</span>
+        <div className="spectrum-view__separator" />
+        {onShowInputChange && (
+          <button
+            className={`spectrum-view__btn${showInput ? ' spectrum-view__btn--active' : ''}`}
+            onClick={() => onShowInputChange(!showInput)}
+            title="Show input signal overlay"
+          >Input</button>
+        )}
+        <button
+          className={`spectrum-view__btn${showWaterfall ? ' spectrum-view__btn--active' : ''}`}
+          onClick={() => { setShowWaterfall(w => !w); waterfallRef.current = null; }}
+          title="Toggle waterfall spectrogram"
+        >Waterfall</button>
+        {onOpen3D && (
+          <button
+            className="spectrum-view__btn"
+            onClick={onOpen3D}
+            title="Open 3D waterfall view"
+          >3D</button>
+        )}
         <div className="spectrum-view__separator" />
         <span className="spectrum-view__f0" ref={f0Ref}>F0: ---</span>
       </div>

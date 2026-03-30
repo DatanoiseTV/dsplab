@@ -1,6 +1,7 @@
-import { forwardRef, useRef, useState, useCallback, useEffect, useImperativeHandle } from 'react';
+import { forwardRef, useRef, useCallback, useEffect, useImperativeHandle } from 'react';
 import VultEditor from '../../VultEditor';
 import type { VultEditorHandle } from '../../VultEditor';
+import { useEditorCursor } from '../../contexts/EditorCursorContext';
 import './EditorPane.css';
 
 interface EditorPaneProps {
@@ -19,8 +20,7 @@ const EditorPane = forwardRef<VultEditorHandle, EditorPaneProps>(
   ({ fileName, code, onChange, markers, onStateUpdate, diffCode, diffMode, aiSuggestion }, ref) => {
     const editorRef = useRef<VultEditorHandle>(null);
     const suggestionDisposableRef = useRef<any>(null);
-    const [cursorLine, setCursorLine] = useState(1);
-    const [cursorCol, setCursorCol] = useState(1);
+    const { setCursor } = useEditorCursor();
 
     useImperativeHandle(ref, () => ({
       insertAtCursor(text: string) {
@@ -90,8 +90,7 @@ const EditorPane = forwardRef<VultEditorHandle, EditorPaneProps>(
       (callback: (state: Record<string, any>) => void) => {
         const wrappedCallback = (state: Record<string, any>) => {
           if (state.cursorPosition) {
-            setCursorLine(state.cursorPosition.lineNumber ?? 1);
-            setCursorCol(state.cursorPosition.column ?? 1);
+            setCursor({ line: state.cursorPosition.lineNumber ?? 1, column: state.cursorPosition.column ?? 1 });
           }
           callback(state);
         };
@@ -118,9 +117,6 @@ const EditorPane = forwardRef<VultEditorHandle, EditorPaneProps>(
             <span>{fileName}</span>
             <span className="editor-pane__tab-close">&times;</span>
           </div>
-          <span className="editor-pane__cursor-pos">
-            Ln {cursorLine}, Col {cursorCol}
-          </span>
         </div>
         <div className="editor-pane__editor">
           <VultEditor

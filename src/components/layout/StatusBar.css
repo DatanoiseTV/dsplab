@@ -62,3 +62,18 @@
   color: var(--text-faint);
   user-select: none;
 }
+
+.status-bar__metric--warn {
+  color: var(--accent-warning, #f0a030);
+}
+
+.status-bar__metric--danger {
+  color: var(--accent-primary, #e04040);
+}
+
+.status-bar__cursor {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-tiny);
+  color: var(--text-muted);
+  user-select: none;
+}

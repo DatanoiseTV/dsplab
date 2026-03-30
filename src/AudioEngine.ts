@@ -1,3 +1,4 @@
+import { apiUrl } from './utils/apiBase';
 
 export interface VultInstance {
   instance: any;
@@ -38,6 +39,9 @@ export class AudioEngine {
   private telemetryHistory: Record<string, any>[] = [];
   private probedStates: Record<string, number[]> = {};
   private audioMetrics: Record<string, number> = { peak: 0, rms: 0, clippingCount: 0, headroom: 0 };
+  private perfMetrics = { cpuPercent: 0, underruns: 0, underrunsPerSec: 0, dspMemoryKB: 0, avgProcessTimeUs: 0 };
+  private inputCaptureEnabled = false;
+  private inputBuffer: Float32Array = new Float32Array(8192);
 
   private sources: InputSource[] = [];
   private settings = {
@@ -179,13 +183,22 @@ export class AudioEngine {
         }));
       });
     }
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume().catch(e => console.error("Error resuming AudioContext:", e));
+    // Don't fire-and-forget — callers that need it running should await ensureRunning()
+  }
+
+  /** Ensure AudioContext is in 'running' state before proceeding. */
+  private async ensureRunning() {
+    if (!this.audioContext) this.initContextSync();
+    if (this.audioContext!.state === 'suspended') {
+      await this.audioContext!.resume();
     }
   }
 
   public async start() {
     this.initContextSync();
+    // Resume AudioContext BEFORE setting up the worklet
+    await this.ensureRunning();
+
     if (!this.workletNode) {
       try {
         await this.audioContext!.audioWorklet.addModule('/vult-processor.js');
@@ -216,6 +229,8 @@ export class AudioEngine {
           if (this.telemetryHistory.length > 20) this.telemetryHistory.shift();
           const probes = event.data.probes || {};
           if (event.data.metrics) this.audioMetrics = event.data.metrics;
+          if (event.data.perfMetrics) this.perfMetrics = event.data.perfMetrics;
+          if (event.data.inputBuffer) this.inputBuffer = event.data.inputBuffer;
           this.stateListeners.forEach(l => l(this.liveState, probes));
           if (event.data.probes) this.probedStates = event.data.probes;
         } else if (event.data.type === 'runtimeError') {
@@ -252,9 +267,8 @@ export class AudioEngine {
       }));
     }
 
-    if (this.audioContext!.state === 'suspended') {
-      await this.audioContext!.resume();
-    }
+    // Ensure running (handles edge case if context was suspended between setup and here)
+    await this.ensureRunning();
     this.isPlaying = true;
   }
 
@@ -275,7 +289,7 @@ export class AudioEngine {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
-      const response = await fetch('/api/compile', {
+      const response = await fetch(apiUrl('/api/compile'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: vultCode, version: this.compilerVersion }),
@@ -311,7 +325,7 @@ export class AudioEngine {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for bg checks
 
-      const response = await fetch('/api/compile', {
+      const response = await fetch(apiUrl('/api/compile'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: vultCode, version: this.compilerVersion }),
@@ -346,6 +360,18 @@ export class AudioEngine {
   }
   public getProbedStates() { return this.probedStates; }
   public getAudioMetrics() { return this.audioMetrics; }
+  public getPerfMetrics() { return this.perfMetrics; }
+
+  public setInputCapture(enabled: boolean) {
+    this.inputCaptureEnabled = enabled;
+    if (this.workletNode) {
+      this.workletNode.port.postMessage({ type: 'setCaptureInput', data: { enabled } });
+    }
+  }
+
+  public getInputCaptureEnabled() { return this.inputCaptureEnabled; }
+
+  public getInputScopeData(): Float32Array { return this.inputBuffer; }
 
   public getScopeData() {
     if (this.analyserL) {
@@ -495,7 +521,7 @@ export class AudioEngine {
     const crestDb = crest > 1.0 ? 20 * Math.log10(crest) : 0;
 
     stats['RMS'] = rmsDb > -100 ? (rmsDb > 0 ? '+' : '') + rmsDb.toFixed(1) + ' dBFS' : '—';
-    stats['Peak'] = peakDb > -100 ? (peakDb > 0 ? 'CLIP +' : '') + peakDb.toFixed(1) + ' dBFS' : '—';
+    stats['Peak'] = peakDb > -100 ? peakDb.toFixed(1) + ' dBFS' : '—';
     stats['Crest'] = crest > 1.0 ? crestDb.toFixed(1) + ' dB' : '—';
     stats['DC'] = Math.abs(dc) > 1e-5 ? (dc * 1000).toFixed(2) + ' m' : '~0';
 
@@ -557,11 +583,12 @@ export class AudioEngine {
         const noisePower = Math.max(0, totalPower - signalPower);
         const harmonicDistortion = Math.max(0, signalPower - fundamentalPower);
         const snr = fundamentalPower > 1e-15 && noisePower > 1e-15 ? 10 * Math.log10(fundamentalPower / noisePower) : (fundamentalPower > 1e-15 ? 120 : 0);
-        const thdnRatio = fundamentalPower > 1e-15 ? (harmonicDistortion + noisePower) / fundamentalPower : 0;
-        const thdnPercent = thdnRatio * 100;
+        // Pure THD: ratio of harmonic power to fundamental (excludes noise)
+        const thdRatio = fundamentalPower > 1e-15 ? harmonicDistortion / fundamentalPower : 0;
+        const thdPercent = thdRatio * 100;
 
         stats['SNR'] = snr > 0.1 ? snr.toFixed(1) + ' dB' : '—';
-        stats['THD+N'] = thdnPercent < 999 ? thdnPercent.toFixed(2) + '%' : '—';
+        stats['THD'] = thdPercent < 999 ? thdPercent.toFixed(2) + '%' : '—';
         stats['F0'] = fundamentalHz + ' Hz';
     }
 

@@ -7,8 +7,13 @@ import './ScopeView.css';
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+type ScopeMode = 'yt' | 'xy';
+
 interface ScopeViewProps {
   getScopeData: () => { l: Float32Array; r: Float32Array };
+  getInputScopeData?: () => Float32Array;
+  showInput?: boolean;
+  onShowInputChange?: (show: boolean) => void;
   getProbedData?: (name: string) => number[] | null;
   probes?: string[];
   triggerMode?: 'auto' | 'free';
@@ -28,10 +33,21 @@ const TRIGGER_COLOR = 'rgba(255,80,80,0.4)';
 const CH1_COLOR = '#ff6b35';
 const CH2_COLOR = '#4ecdc4';
 const PROBE_COLOR = '#c678dd';
+const XY_COLOR = '#4ecdc4';
+const INPUT_COLOR = '#888888';
 
 const MAJOR_COLS = 10;
 const MAJOR_ROWS = 8;
 const SUBDIVISIONS = 4;
+
+const TIME_SCALES = [
+  { label: '0.1ms', samples: 128 },
+  { label: '0.5ms', samples: 512 },
+  { label: '1ms', samples: 1024 },
+  { label: '2ms', samples: 2048 },
+  { label: '5ms', samples: 4096 },
+  { label: '10ms', samples: 8192 },
+];
 
 /* ------------------------------------------------------------------ */
 /*  Graticule offscreen canvas                                         */
@@ -52,14 +68,14 @@ function drawGraticule(
   ctx.save();
   ctx.scale(dpr, dpr);
 
-  // Minor grid (subdivisions)
+  // Minor grid
   ctx.strokeStyle = GRID_MINOR;
   ctx.lineWidth = 1;
   const subCols = MAJOR_COLS * SUBDIVISIONS;
   const subRows = MAJOR_ROWS * SUBDIVISIONS;
   ctx.beginPath();
   for (let i = 1; i < subCols; i++) {
-    if (i % SUBDIVISIONS === 0) continue; // skip major lines
+    if (i % SUBDIVISIONS === 0) continue;
     const x = Math.round((w / subCols) * i) + 0.5;
     ctx.moveTo(x, 0);
     ctx.lineTo(x, h);
@@ -97,6 +113,94 @@ function drawGraticule(
   ctx.moveTo(0, cy);
   ctx.lineTo(w, cy);
   ctx.stroke();
+
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Scale labels                                                       */
+/* ------------------------------------------------------------------ */
+
+const LABEL_COLOR = 'rgba(255,255,255,0.35)';
+const LABEL_FONT = '9px monospace';
+
+function drawScaleLabels(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  mode: ScopeMode,
+  gainLinear: number,
+  timeScaleMs: number,
+) {
+  ctx.save();
+  ctx.font = LABEL_FONT;
+  ctx.textBaseline = 'middle';
+
+  // Voltage per division: the display maps +-1.0 to the full amplitude range
+  // With gain applied, 1 division = 1/gain * (1 / (MAJOR_ROWS/2))
+  const voltsPerDiv = 1.0 / gainLinear / (MAJOR_ROWS / 2);
+
+  // ── Y-axis labels (left edge) ──
+  ctx.textAlign = 'left';
+  ctx.fillStyle = LABEL_COLOR;
+  const centerY = h / 2;
+  const divH = h / MAJOR_ROWS;
+
+  for (let i = 0; i <= MAJOR_ROWS; i++) {
+    const y = i * divH;
+    const divsFromCenter = (MAJOR_ROWS / 2) - i;
+    const voltage = divsFromCenter * voltsPerDiv;
+
+    // Format label
+    let label: string;
+    if (Math.abs(voltage) < 0.001) label = '0';
+    else if (Math.abs(voltage) >= 1) label = voltage.toFixed(1);
+    else label = voltage.toFixed(2);
+
+    // Only draw at major divisions, skip if too close to edge
+    if (y < 8 || y > h - 8) continue;
+    ctx.fillText(label, 3, y);
+  }
+
+  if (mode === 'yt') {
+    // ── X-axis labels (bottom edge) — time ──
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const divW = w / MAJOR_COLS;
+    const msPerDiv = timeScaleMs / MAJOR_COLS;
+
+    for (let i = 0; i <= MAJOR_COLS; i++) {
+      const x = i * divW;
+      const timeMs = i * msPerDiv;
+
+      let label: string;
+      if (timeMs < 1) label = `${(timeMs * 1000).toFixed(0)}us`;
+      else if (timeMs >= 10) label = `${timeMs.toFixed(0)}ms`;
+      else label = `${timeMs.toFixed(1)}ms`;
+
+      if (x < 20 || x > w - 20) continue;
+      ctx.fillText(label, x, h - 2);
+    }
+  } else {
+    // ── X/Y mode: X-axis also shows voltage ──
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const divW = w / MAJOR_COLS;
+
+    for (let i = 0; i <= MAJOR_COLS; i++) {
+      const x = i * divW;
+      const divsFromCenter = i - (MAJOR_COLS / 2);
+      const voltage = divsFromCenter * voltsPerDiv;
+
+      let label: string;
+      if (Math.abs(voltage) < 0.001) label = '0';
+      else if (Math.abs(voltage) >= 1) label = voltage.toFixed(1);
+      else label = voltage.toFixed(2);
+
+      if (x < 20 || x > w - 20) continue;
+      ctx.fillText(label, x, h - 2);
+    }
+  }
 
   ctx.restore();
 }
@@ -143,6 +247,49 @@ function drawTrace(
   ctx.restore();
 }
 
+function drawXY(
+  ctx: CanvasRenderingContext2D,
+  dataL: Float32Array,
+  dataR: Float32Array,
+  w: number,
+  h: number,
+  gain = 1,
+) {
+  if (!dataL || !dataR || dataL.length === 0) return;
+
+  const len = Math.min(dataL.length, dataR.length);
+  const cx = w / 2;
+  const cy = h / 2;
+  const scale = Math.min(w, h) * 0.42 * gain;
+
+  ctx.save();
+  ctx.strokeStyle = XY_COLOR;
+  ctx.lineWidth = 1.2;
+  ctx.globalAlpha = 0.8;
+  ctx.shadowBlur = 4;
+  ctx.shadowColor = XY_COLOR + '80';
+
+  ctx.beginPath();
+  for (let i = 0; i < len; i++) {
+    const x = cx + dataL[i] * scale;
+    const y = cy - dataR[i] * scale;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Draw dot at current position
+  const lastX = cx + dataL[len - 1] * scale;
+  const lastY = cy - dataR[len - 1] * scale;
+  ctx.fillStyle = XY_COLOR;
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 /* ------------------------------------------------------------------ */
 /*  Trigger helpers                                                    */
 /* ------------------------------------------------------------------ */
@@ -163,6 +310,9 @@ function findTriggerPoint(data: Float32Array, threshold: number): number {
 
 const ScopeView: React.FC<ScopeViewProps> = ({
   getScopeData,
+  getInputScopeData,
+  showInput = false,
+  onShowInputChange,
   getProbedData,
   probes = [],
   triggerMode: triggerModeProp,
@@ -172,12 +322,17 @@ const ScopeView: React.FC<ScopeViewProps> = ({
   const graticuleRef = useRef<HTMLCanvasElement | null>(null);
   const dimRef = useRef({ width: 800, height: 200, dpr: 1 });
   const rafRef = useRef<number>(0);
-  const prevDataRef = useRef<{ l: Float32Array; r: Float32Array } | null>(null);
 
-  // Internal trigger mode state (controlled or uncontrolled)
   const [internalTrigger, setInternalTrigger] = useState<'auto' | 'free'>(
     triggerModeProp ?? 'auto',
   );
+  const [scopeMode, setScopeMode] = useState<ScopeMode>('yt');
+  const [timeScaleIdx, setTimeScaleIdx] = useState(2); // default 1ms
+  const [gainDb, setGainDb] = useState(0); // vertical gain in dB
+  const [afterglow, setAfterglow] = useState(false);
+  const gainLinear = Math.pow(10, gainDb / 20);
+  const afterglowAlpha = 0.15; // how much of the previous frame to keep
+
   const triggerMode = triggerModeProp ?? internalTrigger;
   const handleTriggerChange = useCallback(
     (mode: 'auto' | 'free') => {
@@ -234,66 +389,98 @@ const ScopeView: React.FC<ScopeViewProps> = ({
     const render = () => {
       const { width: w, height: h, dpr } = dimRef.current;
       const data = getScopeData();
+      const samplesToShow = TIME_SCALES[timeScaleIdx].samples;
 
       ctx.save();
       ctx.scale(dpr, dpr);
 
-      // 1. Background
-      ctx.fillStyle = BG_COLOR;
-      ctx.fillRect(0, 0, w, h);
+      // 1. Background — afterglow fades instead of clearing
+      if (afterglow) {
+        ctx.fillStyle = `rgba(10, 10, 10, ${1 - afterglowAlpha})`;
+        ctx.fillRect(0, 0, w, h);
+      } else {
+        ctx.fillStyle = BG_COLOR;
+        ctx.fillRect(0, 0, w, h);
+      }
 
       // 2. Graticule (cached)
       if (graticuleRef.current) {
+        ctx.globalAlpha = afterglow ? 0.4 : 1;
         ctx.drawImage(graticuleRef.current, 0, 0, w, h);
+        ctx.globalAlpha = 1;
       }
 
+      // 3. Scale labels
+      // Total time window in ms: samples / sampleRate * 1000
+      const sampleRate = 48000; // approximate; could be passed as prop
+      const totalTimeMs = (samplesToShow / sampleRate) * 1000;
+      drawScaleLabels(ctx, w, h, scopeMode, gainLinear, totalTimeMs);
+
       if (data) {
-        // Trigger
-        let startIdx = 0;
-        const samplesToShow = data.l.length >>> 1;
-
-        if (triggerMode === 'auto') {
-          startIdx = findTriggerPoint(data.l, threshold);
-        }
-
-        const displayL = data.l.subarray(startIdx, startIdx + samplesToShow);
-        const displayR = data.r.subarray(startIdx, startIdx + samplesToShow);
-
-        const hasStereo = data.r && data.r.length > 0;
-        const halfH = h / 2;
-
-        if (hasStereo) {
-          const quarterH = h / 4;
-          // CH1 top half
-          drawTrace(ctx, displayL, CH1_COLOR, w, quarterH, quarterH * 0.85);
-          // CH2 bottom half
-          drawTrace(ctx, displayR, CH2_COLOR, w, h * 0.75, quarterH * 0.85);
+        if (scopeMode === 'xy') {
+          // X/Y (Lissajous) mode
+          const len = Math.min(data.l.length, data.r.length, samplesToShow);
+          // Apply gain to XY by scaling data
+          const scaledL = data.l.subarray(0, len);
+          const scaledR = data.r.subarray(0, len);
+          // gainLinear applied inside drawXY via scale parameter
+          drawXY(ctx, scaledL, scaledR, w, h, gainLinear);
         } else {
-          // Single channel
-          drawTrace(ctx, displayL, CH1_COLOR, w, halfH, halfH * 0.85);
-        }
+          // Y/T (waveform) mode
+          let startIdx = 0;
+          const displayLen = Math.min(samplesToShow, data.l.length >>> 1);
 
-        // 4. Trigger level indicator (auto mode only)
-        if (triggerMode === 'auto') {
-          const trigY = hasStereo
-            ? h / 4 - threshold * (h / 4) * 0.85
-            : halfH - threshold * halfH * 0.85;
-          ctx.save();
-          ctx.strokeStyle = TRIGGER_COLOR;
-          ctx.lineWidth = 1;
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath();
-          ctx.moveTo(0, trigY);
-          ctx.lineTo(w, trigY);
-          ctx.stroke();
-          ctx.restore();
-        }
+          if (triggerMode === 'auto') {
+            startIdx = findTriggerPoint(data.l, threshold);
+          }
 
-        // Probed data
-        if (probes.length > 0 && getProbedData) {
-          const probedData = getProbedData(probes[0]);
-          if (probedData && probedData.length > 0) {
-            drawTrace(ctx, probedData, PROBE_COLOR, w, halfH, halfH * 0.85, true);
+          const displayL = data.l.subarray(startIdx, startIdx + displayLen);
+          const displayR = data.r.subarray(startIdx, startIdx + displayLen);
+
+          const hasStereo = data.r && data.r.length > 0;
+          const halfH = h / 2;
+
+          // Input overlay (behind output traces)
+          if (showInput && getInputScopeData) {
+            const inputData = getInputScopeData();
+            if (inputData && inputData.length > 0) {
+              const inputDisplay = inputData.subarray(
+                Math.max(0, inputData.length - displayLen),
+              );
+              drawTrace(ctx, inputDisplay, INPUT_COLOR, w, halfH, halfH * 0.85 * gainLinear, true);
+            }
+          }
+
+          if (hasStereo) {
+            const quarterH = h / 4;
+            drawTrace(ctx, displayL, CH1_COLOR, w, quarterH, quarterH * 0.85 * gainLinear);
+            drawTrace(ctx, displayR, CH2_COLOR, w, h * 0.75, quarterH * 0.85 * gainLinear);
+          } else {
+            drawTrace(ctx, displayL, CH1_COLOR, w, halfH, halfH * 0.85 * gainLinear);
+          }
+
+          // Trigger level indicator
+          if (triggerMode === 'auto') {
+            const trigY = hasStereo
+              ? h / 4 - threshold * (h / 4) * 0.85
+              : halfH - threshold * halfH * 0.85;
+            ctx.save();
+            ctx.strokeStyle = TRIGGER_COLOR;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(0, trigY);
+            ctx.lineTo(w, trigY);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          // Probed data
+          if (probes.length > 0 && getProbedData) {
+            const probedData = getProbedData(probes[0]);
+            if (probedData && probedData.length > 0) {
+              drawTrace(ctx, probedData, PROBE_COLOR, w, halfH, halfH * 0.85 * gainLinear, true);
+            }
           }
         }
       }
@@ -304,35 +491,71 @@ const ScopeView: React.FC<ScopeViewProps> = ({
 
     rafRef.current = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [getScopeData, getProbedData, probes, triggerMode, threshold]);
-
-  /* ---- Time/div readout ---- */
-  const timeDivLabel = '1.0 ms/div';
+  }, [getScopeData, getInputScopeData, showInput, getProbedData, probes, triggerMode, threshold, scopeMode, timeScaleIdx, gainLinear, afterglow, afterglowAlpha]);
 
   return (
     <div className="scope-view">
       <div className="scope-view__header">
         <span className="scope-view__title">SCOPE</span>
 
-        <Pill color={CH1_COLOR}>CH1</Pill>
-        <Pill color={CH2_COLOR}>CH2</Pill>
+        <ToggleGroup<ScopeMode>
+          options={[
+            { value: 'yt', label: 'Y/T' },
+            { value: 'xy', label: 'X/Y' },
+          ]}
+          value={scopeMode}
+          onChange={setScopeMode}
+        />
 
         <div className="scope-view__separator" />
 
-        <ToggleGroup<'auto' | 'free'>
-          options={[
-            { value: 'auto', label: 'AUTO' },
-            { value: 'free', label: 'FREE' },
-          ]}
-          value={triggerMode}
-          onChange={handleTriggerChange}
-        />
+        {scopeMode === 'yt' && (
+          <>
+            {onShowInputChange && (
+              <Pill color={INPUT_COLOR} onClick={() => onShowInputChange(!showInput)} style={{ opacity: showInput ? 1 : 0.4, cursor: 'pointer' }}>IN</Pill>
+            )}
+            <Pill color={CH1_COLOR}>CH1</Pill>
+            <Pill color={CH2_COLOR}>CH2</Pill>
 
-        <span className="scope-view__readout">{timeDivLabel}</span>
+            <div className="scope-view__separator" />
+
+            <ToggleGroup<'auto' | 'free'>
+              options={[
+                { value: 'auto', label: 'AUTO' },
+                { value: 'free', label: 'FREE' },
+              ]}
+              value={triggerMode}
+              onChange={handleTriggerChange}
+            />
+          </>
+        )}
       </div>
 
       <div className="scope-view__canvas-container">
         <canvas ref={canvasRef} className="scope-view__canvas" />
+      </div>
+
+      <div className="scope-view__footer">
+        <span className="scope-view__ctrl-label">T</span>
+        <button className="scope-view__time-btn" onClick={() => setTimeScaleIdx(i => Math.max(0, i - 1))} disabled={timeScaleIdx === 0}>-</button>
+        <span className="scope-view__readout">{TIME_SCALES[timeScaleIdx].label}/div</span>
+        <button className="scope-view__time-btn" onClick={() => setTimeScaleIdx(i => Math.min(TIME_SCALES.length - 1, i + 1))} disabled={timeScaleIdx === TIME_SCALES.length - 1}>+</button>
+
+        <div className="scope-view__separator" />
+
+        <span className="scope-view__ctrl-label">Gain</span>
+        <button className="scope-view__time-btn" onClick={() => setGainDb(g => Math.max(-20, g - 6))} disabled={gainDb <= -20}>-</button>
+        <span className="scope-view__readout">{gainDb > 0 ? '+' : ''}{gainDb}dB</span>
+        <button className="scope-view__time-btn" onClick={() => setGainDb(g => Math.min(40, g + 6))} disabled={gainDb >= 40}>+</button>
+
+        <div className="scope-view__separator" />
+
+        <button
+          className={`scope-view__time-btn ${afterglow ? 'scope-view__time-btn--active' : ''}`}
+          onClick={() => setAfterglow(a => !a)}
+          title="Phosphor persistence (afterglow)"
+          style={afterglow ? { color: '#4ecdc4', borderColor: '#4ecdc4' } : undefined}
+        >P</button>
       </div>
     </div>
   );

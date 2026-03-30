@@ -7,6 +7,19 @@
   border-radius: var(--radius-panel);
   gap: var(--space-sm);
   flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+/* Buttons and interactive elements must not be draggable */
+.topbar button,
+.topbar input,
+.topbar select,
+.topbar label,
+.topbar a,
+.topbar__transport,
+.topbar__actions,
+.topbar__pills {
+  -webkit-app-region: no-drag;
 }
 
 .topbar__logo {
@@ -71,6 +84,23 @@
   display: flex;
   align-items: center;
   gap: var(--space-xs);
+}
+
+.topbar__export-btn {
+  padding: 3px 10px;
+  font-size: var(--font-size-secondary);
+  font-family: var(--font-ui);
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.topbar__export-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
 }
 
 .topbar__cmd-hint {

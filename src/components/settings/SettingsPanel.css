@@ -1,0 +1,136 @@
+.settings-panel {
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.settings-section__title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  gap: var(--space-sm);
+}
+
+.settings-row__label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-row__hint {
+  font-size: 9px;
+  color: var(--text-faint);
+}
+
+.settings-row__control {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.settings-select {
+  background: var(--bg-input, var(--bg-elevated));
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  outline: none;
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  border-color: var(--accent-secondary);
+}
+
+.settings-input {
+  background: var(--bg-input, var(--bg-elevated));
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  width: 140px;
+  outline: none;
+}
+
+.settings-input:focus {
+  border-color: var(--accent-secondary);
+}
+
+.settings-toggle {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.settings-toggle__track {
+  width: 28px;
+  height: 16px;
+  background: var(--border-default);
+  border-radius: 8px;
+  position: relative;
+  transition: background 0.15s;
+}
+
+.settings-toggle__track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.settings-toggle input:checked + .settings-toggle__track {
+  background: var(--accent-secondary);
+}
+
+.settings-toggle input:checked + .settings-toggle__track::after {
+  transform: translateX(12px);
+  background: white;
+}
+
+.settings-about {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.settings-about__muted {
+  color: var(--text-faint);
+  font-size: 10px;
+}

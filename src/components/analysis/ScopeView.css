@@ -1,5 +1,5 @@
 .scope-view {
-  flex: 3;
+  flex: 1;
   background: var(--bg-surface);
   border-radius: var(--radius-panel);
   display: flex;
@@ -35,8 +35,53 @@
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
-  margin-left: auto;
   letter-spacing: 0.02em;
+  min-width: 60px;
+  text-align: center;
+}
+
+.scope-view__time-btn {
+  background: none;
+  border: 1px solid var(--border-default);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.scope-view__time-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.scope-view__ctrl-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.scope-view__time-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.scope-view__footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .scope-view__canvas-container {

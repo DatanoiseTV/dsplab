@@ -6,11 +6,16 @@
   "author": "syso (DatanoiseTV)",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
+  "main": "electron-dist/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:build-main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=electron-dist/main.cjs --external:electron && esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=electron-dist/preload.cjs --external:electron",
+    "electron:dev": "npm run electron:build-main && concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron electron-dist/main.cjs\"",
+    "electron:build": "npm run build && npm run electron:build-main && electron-builder",
+    "electron:preview": "npm run build && npm run electron:build-main && electron electron-dist/main.cjs"
   },
   "dependencies": {
     "@google/genai": "^1.44.0",
@@ -31,6 +36,12 @@
     "webmidi": "^3.1.14"
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.25.4",
+    "electron": "^36.3.1",
+    "electron-builder": "^26.0.12",
+    "wait-on": "^8.0.3",
     "@eslint/js": "^9.39.1",
     "@types/jszip": "^3.4.0",
     "@types/node": "^24.10.1",

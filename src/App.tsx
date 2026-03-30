@@ -15,18 +15,22 @@ import { VirtualKeyboard } from './components/keyboard/VirtualKeyboard';
 import { StepSequencer } from './components/sequencer/StepSequencer';
 import type { Step } from './components/sequencer/StepSequencer';
 import { InputsPanel } from './components/inputs/InputsPanel';
+import { SettingsPanel } from './components/settings/SettingsPanel';
+import Waterfall3D from './components/analysis/Waterfall3D';
 import PresetBrowser from './components/presets/PresetBrowser';
 import JSZip from 'jszip';
 import { PRESETS } from './constants/presets';
 import { SYSTEM_PROMPT_BASE } from './constants/systemPrompt';
 import { EXPORT_OPTIONS } from './constants/exportOptions';
 import { parseVultError } from './utils/vultError';
+import { apiUrl } from './utils/apiBase';
 import { AppShell } from './components/layout/AppShell';
-import { BottomDock } from './components/layout/BottomDock';
-import { RightPanel } from './components/layout/RightPanel';
+import { Sidebar } from './components/layout/Sidebar';
+import { BottomPanel } from './components/layout/BottomPanel';
 import EditorPane from './components/editor/EditorPane';
 import { usePanelManager } from './hooks/usePanelManager';
-import type { PanelId } from './hooks/usePanelManager';
+import type { SidebarPanelId } from './hooks/usePanelManager';
+import { EditorCursorProvider } from './contexts/EditorCursorContext';
 import { useCommandPalette } from './hooks/useCommandPalette';
 import type { Command } from './hooks/useCommandPalette';
 import { CommandPalette } from './components/palette/CommandPalette';
@@ -49,6 +53,9 @@ const App: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [vultVersion, setVultVersion] = useState<'v0' | 'v1'>('v1');
   const [status, setStatus] = useState('Idle');
+  const [dspPerf, setDspPerf] = useState({ cpuPercent: 0, underruns: 0, dspMemoryKB: 0 });
+  const [showInputOverlay, setShowInputOverlay] = useState(false);
+  const [show3DWaterfall, setShow3DWaterfall] = useState(false);
   const [_audioStatus, setAudioStatus] = useState<{ state: string; sampleRate: number }>({ state: 'suspended', sampleRate: 0 });
   const [editorMarkers, setEditorMarkers] = useState<any[]>([]);
   const [showInspector, setShowInspector] = useState(false);
@@ -85,6 +92,8 @@ const App: React.FC = () => {
   const [selectedMidiInput, setSelectedMidiInput] = useState<string>('all');
 
 
+  const [showAI, setShowAI] = useState(false);
+  const [keyboardDocked, setKeyboardDocked] = useState(false);
   const [midiReady, setMidiReady] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [mobileView, setMobileView] = useState<'editor' | 'lab' | 'panels'>('editor');
@@ -304,6 +313,17 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, [saveSnapshot]);
 
+  // Poll DSP performance metrics for status bar
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (isPlaying) {
+        const pm = audioEngineRef.current.getPerfMetrics();
+        setDspPerf({ cpuPercent: pm.cpuPercent, underruns: pm.underruns, dspMemoryKB: pm.dspMemoryKB });
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [isPlaying]);
+
   useEffect(() => { audioEngineRef.current.setSources(inputs); }, [inputs]);
 
   // Sync sequencer state to AudioWorklet
@@ -326,6 +346,55 @@ const App: React.FC = () => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // ── Electron native menu integration ──────────────────────────────────────
+  const codeRef = useRef(code);
+  codeRef.current = code;
+  const menuHandlerRef = useRef<(event: string, data?: any) => void>(() => {});
+
+  useEffect(() => {
+    menuHandlerRef.current = (event: string, data?: any) => {
+      switch (event) {
+        case 'file:new':
+          setCode(PRESETS["Minimal"]);
+          updateProjectName("New Vult Project");
+          break;
+        case 'file:save':
+          (window as any).dsplab?.saveFile(codeRef.current);
+          break;
+        case 'file:save-as':
+          (window as any).dsplab?.saveFileAs(codeRef.current);
+          break;
+        case 'file:export':
+          setShowExportModal(true);
+          break;
+        case 'file:opened':
+          if (data?.content) {
+            setCode(data.content);
+            if (data.name) updateProjectName(data.name);
+          }
+          break;
+        case 'view:toggle-sidebar':
+          panelManager.handleActivityBarClick('presets');
+          break;
+        case 'view:toggle-ai':
+          setShowAI(prev => !prev);
+          break;
+        case 'view:command-palette':
+          commandPalette.open();
+          break;
+        case 'transport:toggle':
+          handleTogglePlay();
+          break;
+      }
+    };
+  });
+
+  useEffect(() => {
+    const dsplab = (window as any).dsplab;
+    if (!dsplab?.isElectron || !dsplab.onMenuEvent) return;
+    return dsplab.onMenuEvent((event: string, data?: unknown) => menuHandlerRef.current(event, data));
   }, []);
 
   // MIDI must be initialised from a user gesture — call this on first interaction
@@ -358,6 +427,8 @@ const App: React.FC = () => {
         setStatus('Audio Error: ' + (e?.message ?? e));
         return;
       }
+      // Send code immediately after start — worklet is now guaranteed to exist
+      // and AudioContext is guaranteed to be in 'running' state
       const result = await ae.updateCode(code);
       if (result.success) { setStatus('Running'); ae.setProbes(activeProbes); setEditorMarkers([]); }
       else { setStatus('Compile Error'); setEditorMarkers(parseVultError(result)); }
@@ -466,7 +537,7 @@ const App: React.FC = () => {
     try {
       const body: Record<string, string> = { code, target: exportTarget, template: exportTemplate };
       if (exportTarget === 'java') body.javaPrefix = exportJavaPrefix;
-      const response = await fetch('/api/compile', {
+      const response = await fetch(apiUrl('/api/compile'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -642,15 +713,17 @@ const App: React.FC = () => {
     window.addEventListener('mouseup', handleUp);
   };
 
-  const panelManager = usePanelManager(null);
+  const panelManager = usePanelManager({
+    onToggleAI: () => setShowAI(prev => !prev),
+    onToggleKeyboard: () => setKeyboardDocked(prev => !prev),
+  });
 
   const paletteCommands: Command[] = useMemo(() => [
-    { id: 'toggle-editor', label: 'Toggle Editor Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('editor') },
-    { id: 'toggle-inputs', label: 'Toggle Inputs Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('inputs') },
-    { id: 'toggle-sequencer', label: 'Toggle Sequencer Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('sequencer') },
-    { id: 'toggle-keyboard', label: 'Toggle MIDI Keyboard Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('keyboard') },
-    { id: 'toggle-presets', label: 'Toggle Presets Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('presets') },
-    { id: 'toggle-ai', label: 'Toggle AI Assistant Panel', shortcut: '', category: 'Panels', action: () => panelManager.togglePanel('ai') },
+    { id: 'toggle-inputs', label: 'Toggle Inputs Panel', shortcut: '', category: 'Panels', action: () => panelManager.toggleSidebarPanel('inputs') },
+    { id: 'toggle-sequencer', label: 'Toggle Sequencer Panel', shortcut: '', category: 'Panels', action: () => panelManager.setBottomTab('sequencer') },
+    { id: 'toggle-keyboard', label: 'Toggle MIDI Keyboard Panel', shortcut: '', category: 'Panels', action: () => panelManager.setBottomTab('keyboard') },
+    { id: 'toggle-presets', label: 'Toggle Presets Panel', shortcut: '', category: 'Panels', action: () => panelManager.toggleSidebarPanel('presets') },
+    { id: 'toggle-ai', label: 'Toggle AI Assistant Panel', shortcut: '', category: 'Panels', action: () => panelManager.toggleSidebarPanel('ai') },
     { id: 'run', label: 'Run', shortcut: '', category: 'Transport', action: () => { if (!isPlaying) handleTogglePlay(); } },
     { id: 'stop', label: 'Stop', shortcut: '', category: 'Transport', action: () => { if (isPlaying) { audioEngineRef.current.stop(); setIsPlaying(false); setSeqPlaying(false); } } },
     { id: 'export', label: 'Export Code', shortcut: '', category: 'Project', action: () => setShowExportModal(true) },
@@ -665,30 +738,26 @@ const App: React.FC = () => {
 
   const [showShortcuts, setShowShortcuts] = useState(false);
 
-  const panelIds: PanelId[] = ['inputs', 'sequencer', 'keyboard', 'presets', 'ai'];
+  const sidebarTitles: Record<SidebarPanelId, string> = {
+    inputs: 'Inputs',
+    presets: 'Presets',
+    settings: 'Settings',
+    inspector: 'State Inspector',
+  };
 
   const shortcuts: Shortcut[] = useMemo(() => [
-    { key: 'Space', action: handleTogglePlay, description: 'Play / Stop', category: 'Transport' },
+    { key: 'Enter', meta: true, action: handleTogglePlay, description: 'Play / Stop', category: 'Transport' },
     { key: 'k', meta: true, action: () => commandPalette.open(), description: 'Command Palette', category: 'General' },
     { key: '/', meta: true, action: () => setShowShortcuts(prev => !prev), description: 'Toggle Shortcuts', category: 'General' },
-    { key: '1', meta: true, action: () => panelManager.togglePanel('inputs'), description: 'Toggle Inputs', category: 'Panels' },
-    { key: '2', meta: true, action: () => panelManager.togglePanel('sequencer'), description: 'Toggle Sequencer', category: 'Panels' },
-    { key: '3', meta: true, action: () => panelManager.togglePanel('keyboard'), description: 'Toggle Keyboard', category: 'Panels' },
-    { key: '4', meta: true, action: () => panelManager.togglePanel('presets'), description: 'Toggle Presets', category: 'Panels' },
-    { key: '5', meta: true, action: () => panelManager.togglePanel('ai'), description: 'Toggle AI', category: 'Panels' },
+    { key: '1', meta: true, action: () => panelManager.toggleSidebarPanel('inputs'), description: 'Toggle Inputs', category: 'Panels' },
+    { key: '2', meta: true, action: () => panelManager.setBottomTab('sequencer'), description: 'Toggle Sequencer', category: 'Panels' },
+    { key: '3', meta: true, action: () => panelManager.setBottomTab('keyboard'), description: 'Toggle Keyboard', category: 'Panels' },
+    { key: '4', meta: true, action: () => panelManager.toggleSidebarPanel('presets'), description: 'Toggle Presets', category: 'Panels' },
+    { key: '5', meta: true, action: () => panelManager.toggleSidebarPanel('ai'), description: 'Toggle AI', category: 'Panels' },
   ], [handleTogglePlay, commandPalette.open, panelManager]);
 
   useKeyboardShortcuts(shortcuts);
 
-  const panelTitles: Record<PanelId, string> = {
-    editor: 'Editor',
-    inputs: 'Inputs',
-    sequencer: 'Sequencer',
-    keyboard: 'MIDI Keyboard',
-    presets: 'Presets',
-    ai: 'AI Assistant',
-    settings: 'Settings',
-  };
 
   const getCodeSummary = (codeStr: string) => {
     const lines = codeStr.split('\n');
@@ -703,7 +772,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <>
+    <EditorCursorProvider>
       <AppShell
         projectName={projectName}
         isPlaying={isPlaying}
@@ -715,20 +784,144 @@ const App: React.FC = () => {
         bufferSize={128}
         onExport={() => setShowExportModal(true)}
         onCommandPalette={commandPalette.open}
-        activePanel={panelManager.activeRightPanel}
-        onPanelToggle={(panel: string) => panelManager.togglePanel(panel as PanelId)}
+        activeSidebarPanel={panelManager.activeSidebarPanel}
+        activeBottomTab={panelManager.activeBottomTab}
+        showAI={showAI}
+        keyboardDocked={keyboardDocked}
+        onIconClick={panelManager.handleActivityBarClick}
         status={status.includes('Error') || status.includes('Crash') ? 'error' : status === 'Running' ? 'ready' : 'ready'}
-        cpuPercent={0}
+        cpuPercent={dspPerf.cpuPercent}
         latencyMs={128 / (audioEngineRef.current?.audioContext?.sampleRate || 48000) * 1000}
-        rightPanel={
-          panelManager.activeRightPanel ? (
-            <RightPanel
-              visible={!!panelManager.activeRightPanel}
-              title={panelTitles[panelManager.activeRightPanel] || ''}
-              onClose={panelManager.closePanel}
-              onUndock={() => panelManager.activeRightPanel && panelManager.undockPanel(panelManager.activeRightPanel)}
+        underruns={dspPerf.underruns}
+        dspMemoryKB={dspPerf.dspMemoryKB}
+        sidebar={
+          panelManager.activeSidebarPanel ? (
+            <Sidebar
+              visible={!!panelManager.activeSidebarPanel}
+              title={sidebarTitles[panelManager.activeSidebarPanel] || ''}
+              onClose={panelManager.closeSidebar}
             >
-              {panelManager.activeRightPanel === 'ai' && (
+              {panelManager.activeSidebarPanel === 'inputs' && (
+                <InputsPanel
+                  inputs={inputs}
+                  onInputChange={updateInput}
+                  onTrigger={(idx) => audioEngineRef.current.triggerGenerator(idx)}
+                  onSampleUpload={handleSampleUpload}
+                  onAddInput={() => setInputs(prev => [...prev, { name: `input${prev.length + 1}`, type: 'cv', freq: 440, value: 0.5, oscType: 'sine', lfoRate: 1, lfoDepth: 1, lfoShape: 'sine' }])}
+                  onRemoveInput={(idx) => setInputs(prev => prev.filter((_, i) => i !== idx))}
+                  audioDevices={audioDevices}
+                />
+              )}
+              {panelManager.activeSidebarPanel === 'presets' && (
+                <PresetBrowser
+                  onLoad={(presetCode, name) => {
+                    handleLoadCode(presetCode);
+                    if (name) setProjectName(name);
+                  }}
+                />
+              )}
+              {panelManager.activeSidebarPanel === 'settings' && (
+                <SettingsPanel
+                  compilerVersion={vultVersion}
+                  onCompilerVersionChange={(v) => { setVultVersion(v); audioEngineRef.current.setCompilerVersion(v); }}
+                  sampleRate={audioEngineRef.current?.audioContext?.sampleRate || 48000}
+                  bufferSize={128}
+                />
+              )}
+              {panelManager.activeSidebarPanel === 'inspector' && (
+                <>
+                  <div style={{ flex: activeProbes.length > 0 ? '1 1 50%' : '1 1 auto', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <StateInspector
+                      onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)}
+                      onProbe={(name) => setActiveProbes(prev => prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name])}
+                      onSetState={(path, value) => audioEngineRef.current.setState(path, value)}
+                      activeProbes={activeProbes}
+                    />
+                  </div>
+                  {activeProbes.length > 0 && (
+                    <div style={{ flex: '1 1 50%', borderTop: '1px solid var(--border-subtle)', minHeight: 150, display: 'flex', flexDirection: 'column' }}>
+                      <MultiScopeView
+                        probes={activeProbes}
+                        onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </Sidebar>
+          ) : null
+        }
+        bottomPanel={
+          <BottomPanel
+            activeTab={panelManager.activeBottomTab}
+            onTabChange={panelManager.setBottomTab}
+            collapsed={panelManager.bottomPanelCollapsed}
+            onToggleCollapse={panelManager.toggleBottomPanel}
+          >
+            {panelManager.activeBottomTab === 'analysis' && (
+              <div style={{ display: 'flex', flex: 1, gap: 'var(--panel-gap)', minHeight: 0 }}>
+                <ScopeView
+                  getScopeData={() => audioEngineRef.current.getScopeData()}
+                  getInputScopeData={() => audioEngineRef.current.getInputScopeData()}
+                  showInput={showInputOverlay}
+                  onShowInputChange={(show) => { setShowInputOverlay(show); audioEngineRef.current.setInputCapture(show); }}
+                  getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null}
+                  probes={activeProbes}
+                />
+                <SpectrumView
+                  getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
+                  getInputScopeData={() => audioEngineRef.current.getInputScopeData()}
+                  showInput={showInputOverlay}
+                  onShowInputChange={(show) => { setShowInputOverlay(show); audioEngineRef.current.setInputCapture(show); }}
+                  onOpen3D={() => setShow3DWaterfall(true)}
+                  getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
+                />
+                <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />
+              </div>
+            )}
+            {panelManager.activeBottomTab === 'sequencer' && (
+              <StepSequencer
+                steps={seqSteps}
+                onStepsChange={setSeqSteps}
+                bpm={seqBpm}
+                onBpmChange={setSeqBpm}
+                isPlaying={seqPlaying}
+                onPlayToggle={() => setSeqPlaying(p => !p)}
+                length={seqLength}
+                onLengthChange={setSeqLength}
+                gateLength={seqGateLength}
+                onGateLengthChange={setSeqGateLength}
+                mode={seqMode}
+                onModeChange={setSeqMode}
+                drumTracks={seqDrumTracks}
+                onDrumTracksChange={setSeqDrumTracks}
+                ccTracks={seqCCTracks}
+                onCCTracksChange={setSeqCCTracks}
+                currentStep={seqCurrentStep}
+              />
+            )}
+          </BottomPanel>
+        }
+        dockedKeyboard={
+          keyboardDocked ? (
+            <div style={{ flexShrink: 0, background: 'var(--bg-surface)', borderRadius: 'var(--radius-panel)', overflow: 'hidden' }}>
+              <VirtualKeyboard
+                onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)}
+                onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)}
+                onCC={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
+                ccLabels={ccLabels}
+              />
+            </div>
+          ) : null
+        }
+        aiOverlay={
+          showAI ? (
+            <div className="ai-overlay">
+              <div className="ai-overlay__header">
+                <span className="ai-overlay__title">AI Assistant</span>
+                <button className="ai-overlay__close" onClick={() => setShowAI(false)}>&times;</button>
+              </div>
+              <div className="ai-overlay__body">
                 <AIPanel
                   currentCode={code}
                   onUpdateCode={handleAgentUpdateCode}
@@ -750,54 +943,8 @@ const App: React.FC = () => {
                   getAudioMetrics={() => audioEngineRef.current.getAudioMetrics()}
                   systemPrompt={SYSTEM_PROMPT_BASE + `\nVULT VERSION CONTEXT: The compiler is currently set to: ${vultVersion === 'v0' ? 'Vult 0.4.15' : 'Vult v1'}.`}
                 />
-              )}
-              {panelManager.activeRightPanel === 'sequencer' && (
-                <StepSequencer
-                  steps={seqSteps}
-                  onStepsChange={setSeqSteps}
-                  bpm={seqBpm}
-                  onBpmChange={setSeqBpm}
-                  isPlaying={seqPlaying}
-                  onPlayToggle={() => setSeqPlaying(p => !p)}
-                  length={seqLength}
-                  onLengthChange={setSeqLength}
-                  gateLength={seqGateLength}
-                  onGateLengthChange={setSeqGateLength}
-                  mode={seqMode}
-                  onModeChange={setSeqMode}
-                  drumTracks={seqDrumTracks}
-                  onDrumTracksChange={setSeqDrumTracks}
-                  ccTracks={seqCCTracks}
-                  onCCTracksChange={setSeqCCTracks}
-                  currentStep={seqCurrentStep}
-                />
-              )}
-              {panelManager.activeRightPanel === 'keyboard' && (
-                <VirtualKeyboard
-                  onNoteOn={(note, vel) => audioEngineRef.current.sendNoteOn(note, vel, 0)}
-                  onNoteOff={(note) => audioEngineRef.current.sendNoteOff(note, 0)}
-                  onCC={(cc, val) => audioEngineRef.current.sendControlChange(cc, val, 0)}
-                  ccLabels={ccLabels}
-                />
-              )}
-              {panelManager.activeRightPanel === 'inputs' && (
-                <InputsPanel
-                  inputs={inputs}
-                  onInputChange={updateInput}
-                  onTrigger={(idx) => audioEngineRef.current.triggerGenerator(idx)}
-                  onSampleUpload={handleSampleUpload}
-                  audioDevices={audioDevices}
-                />
-              )}
-              {panelManager.activeRightPanel === 'presets' && (
-                <PresetBrowser
-                  onLoad={(presetCode, name) => {
-                    handleLoadCode(presetCode);
-                    if (name) setProjectName(name);
-                  }}
-                />
-              )}
-            </RightPanel>
+              </div>
+            </div>
           ) : null
         }
       >
@@ -817,14 +964,6 @@ const App: React.FC = () => {
             <button onClick={handleAcceptDiff} style={{ background: '#007acc', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>ACCEPT & COMPILE</button>
           </div>
         )}
-        <BottomDock>
-          <ScopeView getScopeData={() => audioEngineRef.current.getScopeData()} getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null} probes={activeProbes} />
-          <SpectrumView
-            getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
-            getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
-          />
-          <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />
-        </BottomDock>
       </AppShell>
 
       {/* Restore Session Modal */}
@@ -1015,7 +1154,14 @@ const App: React.FC = () => {
         onClose={() => setShowShortcuts(false)}
         shortcuts={shortcuts}
       />
-    </>
+      {show3DWaterfall && (
+        <Waterfall3D
+          getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
+          sampleRate={audioEngineRef.current?.audioContext?.sampleRate || 48000}
+          onClose={() => setShow3DWaterfall(false)}
+        />
+      )}
+    </EditorCursorProvider>
   );
 };
 export default App;

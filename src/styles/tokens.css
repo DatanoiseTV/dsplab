@@ -1,27 +1,27 @@
 :root {
   /* Backgrounds */
   --bg-base: #0a0a0a;
-  --bg-surface: #111111;
+  --bg-surface: #141414;
   --bg-elevated: #1a1a1a;
   --bg-control: #242424;
 
   /* Accent Colors */
-  --accent-primary: #ff6b35;
-  --accent-secondary: #4ecdc4;
-  --accent-tertiary: #c678dd;
-  --accent-warning: #e5c07b;
-  --accent-success: #98c379;
+  --accent-primary: #d4754a;
+  --accent-secondary: #5ab5ad;
+  --accent-tertiary: #b07acc;
+  --accent-warning: #d4b86a;
+  --accent-success: #8fbf6e;
 
   /* Text */
   --text-primary: #eeeeee;
-  --text-secondary: #cccccc;
+  --text-secondary: #bbbbbb;
   --text-tertiary: #888888;
-  --text-muted: #555555;
-  --text-faint: #333333;
+  --text-muted: #777777;
+  --text-faint: #4a4a4a;
 
   /* Borders */
-  --border-subtle: #1a1a1a;
-  --border-default: #222222;
+  --border-subtle: #1e1e1e;
+  --border-default: #282828;
   --border-strong: #333333;
 
   /* Typography */
@@ -55,9 +55,9 @@
 
   /* Layout dimensions */
   --topbar-height: 38px;
-  --activity-bar-width: 44px;
+  --activity-bar-width: 110px;
   --status-bar-height: 22px;
-  --bottom-dock-default-height: 130px;
+  --bottom-dock-default-height: 180px;
   --right-panel-width: 240px;
 
   /* Channel colors (aliases) */

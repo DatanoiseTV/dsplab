@@ -1,38 +1,52 @@
 import React from 'react';
-import { Code2, Disc3, Grid3x3, Music, List, Sparkles, Settings } from 'lucide-react';
+import { Code2, Disc3, Grid3x3, Piano, List, Sparkles, Settings, Activity } from 'lucide-react';
+import type { SidebarPanelId, BottomTabId } from '../../hooks/usePanelManager';
 import './ActivityBar.css';
 
 export interface ActivityBarProps {
-  activePanel: string | null;
-  onPanelToggle: (panel: string) => void;
+  activeSidebarPanel: SidebarPanelId | null;
+  activeBottomTab: BottomTabId;
+  showAI: boolean;
+  keyboardDocked: boolean;
+  onIconClick: (id: string) => void;
 }
 
 const topIcons = [
   { id: 'code', icon: Code2, label: 'Code Editor' },
   { id: 'inputs', icon: Disc3, label: 'Inputs' },
   { id: 'sequencer', icon: Grid3x3, label: 'Sequencer' },
-  { id: 'keyboard', icon: Music, label: 'Keyboard' },
+  { id: 'keyboard', icon: Piano, label: 'MIDI / Keys' },
   { id: 'presets', icon: List, label: 'Presets' },
+  { id: 'inspector', icon: Activity, label: 'Inspector' },
 ];
 
 const bottomIcons = [
-  { id: 'ai', icon: Sparkles, label: 'AI', dot: true },
+  { id: 'ai', icon: Sparkles, label: 'AI Assistant' },
   { id: 'settings', icon: Settings, label: 'Settings' },
 ];
 
-export function ActivityBar({ activePanel, onPanelToggle }: ActivityBarProps) {
+export function ActivityBar({ activeSidebarPanel, activeBottomTab, showAI, keyboardDocked, onIconClick }: ActivityBarProps) {
+  const isActive = (id: string) => {
+    if (id === 'code') return activeSidebarPanel === null && !showAI;
+    if (id === 'sequencer') return activeBottomTab === 'sequencer';
+    if (id === 'keyboard') return keyboardDocked;
+    if (id === 'ai') return showAI;
+    return activeSidebarPanel === id;
+  };
+
   const renderIcon = (item: { id: string; icon: React.ComponentType<{ size?: number }>; label: string; dot?: boolean }) => {
     const Icon = item.icon;
-    const isActive = activePanel === item.id;
+    const active = isActive(item.id);
 
     return (
       <button
         key={item.id}
-        className={`activity-bar__icon ${isActive ? 'activity-bar__icon--active' : ''}`}
-        onClick={() => onPanelToggle(item.id)}
+        className={`activity-bar__icon${active ? ' activity-bar__icon--active' : ''}`}
+        onClick={() => onIconClick(item.id)}
         title={item.label}
       >
-        <Icon size={16} />
+        <Icon size={14} />
+        <span className="activity-bar__label">{item.label}</span>
         {item.dot && <span className="activity-bar__dot" />}
       </button>
     );

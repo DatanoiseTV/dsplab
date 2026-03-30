@@ -52,6 +52,24 @@ class VultProcessor extends AudioWorkletProcessor {
       headroom: 0
     };
 
+    // DSP Performance Metrics
+    this.perfMetrics = {
+      cpuPercent: 0,           // % of available time spent in process()
+      underruns: 0,            // total underrun count since start
+      underrunsPerSec: 0,      // underruns in the last second
+      dspMemoryKB: 0,          // estimated DSP memory usage
+      avgProcessTimeUs: 0,     // average process() time in microseconds
+    };
+    this._processTimesMs = [];      // rolling window of process() durations (ms via Date.now)
+    this._lastCallMs = 0;          // Date.now() of last process() call
+    this._underrunWindow = [];     // timestamps of recent underruns (ms)
+    this._blockDurationMs = 0;     // expected block duration in milliseconds
+
+    // Input signal capture (ring buffer for scope/spectrum overlay)
+    this._inputBuffer = new Float32Array(8192);
+    this._inputWritePos = 0;
+    this._captureInput = false;
+
     // Crash handling
     this.errorCount = 0;
     this.isCrashed = false;
@@ -124,6 +142,8 @@ class VultProcessor extends AudioWorkletProcessor {
         }
       } else if (type === 'setSampleRate') {
         this.sampleRate = data.sampleRate || 44100;
+      } else if (type === 'setCaptureInput') {
+        this._captureInput = !!data.enabled;
       }
     };
   }
@@ -208,6 +228,18 @@ class VultProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, parameters) {
+    const _t0 = Date.now();
+
+    // Underrun detection: if time since last call exceeds 2.5x expected block duration
+    if (this._lastCallMs > 0 && this._blockDurationMs > 0) {
+      const gapMs = _t0 - this._lastCallMs;
+      if (gapMs > this._blockDurationMs * 2.5) {
+        this.perfMetrics.underruns++;
+        this._underrunWindow.push(_t0);
+      }
+    }
+    this._lastCallMs = _t0;
+
     // Apply deferred code compilation (moved here from onmessage to avoid
     // blocking the render thread — see updateCode handler comment).
     if (this._pendingCode !== null) {
@@ -463,6 +495,12 @@ class VultProcessor extends AudioWorkletProcessor {
         }
       }
 
+      // Capture primary input signal for overlay display
+      if (this._captureInput && inputValues.length > 0) {
+        this._inputBuffer[this._inputWritePos] = inputValues[0];
+        this._inputWritePos = (this._inputWritePos + 1) & 8191; // mod 8192
+      }
+
       if (this.vultInstance && this.vultInstance._processFn) {
         try {
           const result = this.vultInstance._processFn.apply(this.vultInstance, inputValues);
@@ -551,17 +589,63 @@ class VultProcessor extends AudioWorkletProcessor {
     this.metrics.clippingCount = blockClips;
     this.metrics.headroom = this.metrics.peak > 0 ? 20 * Math.log10(1.0 / this.metrics.peak) : 100;
 
+    // ── Performance measurement ──────────────────────────────────────────
+    // Date.now() has 1ms resolution — too coarse for single blocks (~2.7ms at 48kHz/128).
+    // Accumulate total processing time over a window and compute ratio vs wall time.
+    const _t1 = Date.now();
+    const elapsedMs = _t1 - _t0; // often 0 or 1 due to ms resolution
+    this._processTimesMs.push(elapsedMs);
+    if (this._processTimesMs.length > 200) this._processTimesMs.shift();
+
+    // Compute block duration from sample rate + buffer size
+    if (this._blockDurationMs === 0 && this.sampleRate > 0 && numSamples > 0) {
+      this._blockDurationMs = (numSamples / this.sampleRate) * 1000;
+    }
+
+    // Sliding underrun window — keep only last second
+    while (this._underrunWindow.length > 0 && (_t1 - this._underrunWindow[0]) > 1000) {
+      this._underrunWindow.shift();
+    }
+    this.perfMetrics.underrunsPerSec = this._underrunWindow.length;
+
+    // CPU% = (sum of process times) / (count * blockDuration) * 100
+    // Using a large window (200 blocks) smooths out the 1ms quantization
+    const sumMs = this._processTimesMs.reduce((a, b) => a + b, 0);
+    const count = this._processTimesMs.length;
+    this.perfMetrics.avgProcessTimeUs = (sumMs / count) * 1000; // ms → us
+    if (this._blockDurationMs > 0 && count > 0) {
+      this.perfMetrics.cpuPercent = (sumMs / (count * this._blockDurationMs)) * 100;
+    }
+
+    // Estimate DSP memory: rough size of vult instance + probe history + sample buffers
+    let memEstimate = 0;
+    if (this.vultInstance) {
+      // Count keys on instance as rough proxy (each key ~ 64 bytes for number/array ref)
+      const keys = Object.keys(this.vultInstance);
+      memEstimate += keys.length * 64;
+      const ctx = this.vultInstance.context || this.vultInstance._ctx;
+      if (ctx) memEstimate += Object.keys(ctx).length * 64;
+    }
+    for (const key in this.sampleBuffers) {
+      const buf = this.sampleBuffers[key];
+      if (buf) memEstimate += buf.length * 4; // Float32 = 4 bytes
+    }
+    for (const key in this.probeHistory) {
+      memEstimate += (this.probeHistory[key]?.length || 0) * 8;
+    }
+    this.perfMetrics.dspMemoryKB = memEstimate / 1024;
+
     // TELEMETRY & PROBE COLLECTION
     if (this.vultInstance) {
       this.activeProbes.forEach(p => {
         const parts = p.split('.');
         let target = this.vultInstance.context || this.vultInstance._ctx || this.vultInstance;
         for(const part of parts) { if(target && target[part] !== undefined) target = target[part]; else break; }
-        
+
         let val = 0;
         if (typeof target === 'number') val = target;
         else if (typeof target === 'boolean') val = target ? 1.0 : 0.0;
-        
+
         if (!this.probeHistory[p]) this.probeHistory[p] = [];
         this.probeHistory[p].push(val);
       });
@@ -569,12 +653,24 @@ class VultProcessor extends AudioWorkletProcessor {
       if (this.telemetryCounter++ > 23) {
         this.telemetryCounter = 0;
         const state = this.getQuickState();
-        this.port.postMessage({ 
-          type: 'telemetry', 
-          state, 
+        const msg = {
+          type: 'telemetry',
+          state,
           probes: this.probeHistory,
-          metrics: this.metrics
-        });
+          metrics: this.metrics,
+          perfMetrics: this.perfMetrics,
+          inputBuffer: null,
+        };
+        // Include input buffer snapshot if capturing
+        if (this._captureInput) {
+          // Linearize ring buffer: write pos is the oldest sample
+          const buf = new Float32Array(8192);
+          const wp = this._inputWritePos;
+          buf.set(this._inputBuffer.subarray(wp), 0);
+          buf.set(this._inputBuffer.subarray(0, wp), 8192 - wp);
+          msg.inputBuffer = buf;
+        }
+        this.port.postMessage(msg);
         for (const key in this.probeHistory) { this.probeHistory[key] = []; }
       }
     }

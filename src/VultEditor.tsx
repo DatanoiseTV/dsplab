@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import type { Monaco } from '@monaco-editor/react';
+import { registerVultLanguageFeatures } from './vultLanguageFeatures';
 
 export interface VultEditorHandle {
   /** Insert text at the current cursor position. */
@@ -128,52 +129,8 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
   }, [markers, diffMode]);
 
   const setupMonaco = (monaco: Monaco) => {
-    if ((window as any).__vult_monaco_setup_v2) return;
-    (window as any).__vult_monaco_setup_v2 = true;
-
-    // Define custom DSPLab theme
-    monaco.editor.defineTheme('dsplab-dark', {
-      base: 'vs-dark',
-      inherit: false,
-      rules: [
-        { token: '',                  foreground: '9cdcfe', background: '111111' },
-        { token: 'keyword',           foreground: 'c678dd' },
-        { token: 'keyword.function',  foreground: 'dcdcaa' },
-        { token: 'type',              foreground: '4ecdc4' },
-        { token: 'variable',          foreground: '9cdcfe' },
-        { token: 'number',            foreground: '98c379' },
-        { token: 'string',            foreground: '98c379' },
-        { token: 'string.escape',     foreground: '98c379' },
-        { token: 'comment',           foreground: '555555', fontStyle: 'italic' },
-        { token: 'operator',          foreground: 'cccccc' },
-        { token: 'delimiter',         foreground: 'cccccc' },
-        { token: 'annotation',        foreground: 'e5c07b' },
-        { token: 'white',             foreground: 'eeeeee' },
-      ],
-      colors: {
-        'editor.background':                   '#111111',
-        'editor.foreground':                   '#9cdcfe',
-        'editorLineNumber.foreground':         '#555555',
-        'editorLineNumber.activeForeground':   '#888888',
-        'editor.selectionBackground':          'rgba(78, 205, 196, 0.2)',
-        'editor.lineHighlightBackground':      'rgba(26, 26, 26, 0.5)',
-        'editorCursor.foreground':             '#ff6b35',
-        'editor.selectionHighlightBackground': 'rgba(78, 205, 196, 0.1)',
-        'editorGutter.background':             '#111111',
-        'editorOverviewRuler.border':          '#222222',
-        'scrollbarSlider.background':          'rgba(85, 85, 85, 0.3)',
-        'scrollbarSlider.hoverBackground':     'rgba(85, 85, 85, 0.5)',
-        'scrollbarSlider.activeBackground':    'rgba(85, 85, 85, 0.7)',
-        'minimap.background':                  '#111111',
-        'editorWidget.background':             '#1a1a1a',
-        'editorWidget.border':                 '#222222',
-        'input.background':                    '#0a0a0a',
-        'input.border':                        '#333333',
-        'input.foreground':                    '#eeeeee',
-        'list.activeSelectionBackground':      '#242424',
-        'list.hoverBackground':                '#1a1a1a',
-      },
-    });
+    if ((window as any).__vult_lang_registered) return;
+    (window as any).__vult_lang_registered = true;
 
     if (!monaco.languages.getLanguages().some((l: any) => l.id === 'vult')) {
       monaco.languages.register({ id: 'vult' });
@@ -399,6 +356,8 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
       }
     });
 
+    // Register LSP-style features (go-to-definition, signature help, document symbols, enhanced hover)
+    registerVultLanguageFeatures(monaco);
   };
 
   // Helper: get selected text, or the whole current function, or whole file
@@ -593,7 +552,7 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
           original={originalCode}
           modified={code}
           language="vult"
-          theme="dsplab-dark"
+          theme="vs-dark"
           onMount={handleDiffMount}
           options={{
             renderSideBySide: true,
@@ -607,7 +566,9 @@ const VultEditor = forwardRef<VultEditorHandle, VultEditorProps>(({
         <Editor
           height="100%"
           defaultLanguage="vult"
-          theme="dsplab-dark"
+          theme="vs-dark"
+          beforeMount={setupMonaco}
+          loading={<div style={{ background: '#1e1e1e', height: '100%' }} />}
           value={code}
           onChange={handleOnChange}
           onMount={handleEditorDidMount}

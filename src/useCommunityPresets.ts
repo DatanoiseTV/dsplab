@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { apiUrl } from './utils/apiBase';
 
 // ── Meta schema (schema_version: 1) ──────────────────────────────────────────
 
@@ -86,7 +87,7 @@ function fallbackName(filePath: string): string {
 
 // Fetch a single file from the local repo mirror — no rate limits, no auth needed
 export async function loadRepoFile(filePath: string): Promise<string> {
-  const res = await fetch(`/api/repo/file?path=${encodeURIComponent(filePath)}`);
+  const res = await fetch(apiUrl(`/api/repo/file?path=${encodeURIComponent(filePath)}`));
   if (!res.ok) throw new Error(`repo file ${res.status}: ${filePath}`);
   return res.text();
 }
@@ -101,7 +102,7 @@ async function fetchAll(): Promise<CacheEntry> {
 
   inflight = (async () => {
     // 1. Get the file tree from local mirror
-    const treeRes = await fetch('/api/repo/tree');
+    const treeRes = await fetch(apiUrl('/api/repo/tree'));
     if (!treeRes.ok) throw new Error(`repo tree ${treeRes.status}`);
     const treeData = await treeRes.json();
 
@@ -187,7 +188,7 @@ async function fetchAll(): Promise<CacheEntry> {
 export async function triggerRepoRefresh(): Promise<void> {
   moduleCache = null;
   inflight    = null;
-  await fetch('/api/repo/refresh');
+  await fetch(apiUrl('/api/repo/refresh'));
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -219,7 +220,7 @@ export function useCommunityPresets() {
 
   const refresh = useCallback(async () => {
     // Ask server to re-download from GitHub, then reload our cache
-    await fetch('/api/repo/refresh');
+    await fetch(apiUrl('/api/repo/refresh'));
     await load(true);
   }, [load]);
 
