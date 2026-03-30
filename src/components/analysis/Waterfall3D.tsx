@@ -136,12 +136,6 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
   const draggingRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
 
-  // Stable refs for render loop (avoids effect re-runs)
-  const getSpectrumRef = useRef(getSpectrumData);
-  getSpectrumRef.current = getSpectrumData;
-  const downsampleRef = useRef(downsample);
-  downsampleRef.current = downsample;
-
   // Ring buffer state (shared via refs for perf)
   const writeRowRef = useRef(0);
   const rowCountRef = useRef(0);
@@ -160,6 +154,12 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
     }
     return out;
   }, [sampleRate]);
+
+  // Stable refs for render loop (avoids effect re-runs)
+  const getSpectrumRef = useRef(getSpectrumData);
+  getSpectrumRef.current = getSpectrumData;
+  const downsampleRef = useRef(downsample);
+  downsampleRef.current = downsample;
 
   /* Mouse */
   const onMouseDown = useCallback((e: React.MouseEvent) => { draggingRef.current = true; lastMouseRef.current = { x: e.clientX, y: e.clientY }; }, []);
