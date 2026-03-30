@@ -31,6 +31,29 @@
   flex-shrink: 0;
 }
 
+.spectrum-view__btn {
+  background: none;
+  border: 1px solid var(--border-default);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+
+.spectrum-view__btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.spectrum-view__btn--active {
+  color: var(--accent-cyan, #4ecdc4);
+  border-color: var(--accent-cyan, #4ecdc4);
+}
+
 .spectrum-view__f0 {
   font-family: var(--font-mono);
   font-size: var(--font-size-label);

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import './SpectrumView.css';
 
 interface SpectrumViewProps {
@@ -64,6 +64,27 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
   const gridCanvasRef = useRef<OffscreenCanvas | null>(null);
   const gridDirtyRef = useRef(true);
   const f0Ref = useRef<HTMLSpanElement>(null);
+  const [showWaterfall, setShowWaterfall] = useState(false);
+  const waterfallRef = useRef<HTMLCanvasElement | null>(null);
+  const waterfallRowRef = useRef(0);
+
+  /* Waterfall color map: dB → RGB (blue-cyan-yellow-red heat map) */
+  function dbToColor(dB: number): string {
+    const norm = Math.max(0, Math.min(1, (dB - MIN_DB) / DB_RANGE)); // 0=silence, 1=max
+    if (norm < 0.25) {
+      const t = norm / 0.25;
+      return `rgb(0, 0, ${Math.round(t * 180)})`;
+    } else if (norm < 0.5) {
+      const t = (norm - 0.25) / 0.25;
+      return `rgb(0, ${Math.round(t * 220)}, ${Math.round(180 - t * 80)})`;
+    } else if (norm < 0.75) {
+      const t = (norm - 0.5) / 0.25;
+      return `rgb(${Math.round(t * 255)}, ${Math.round(220 + t * 35)}, ${Math.round(100 - t * 100)})`;
+    } else {
+      const t = (norm - 0.75) / 0.25;
+      return `rgb(255, ${Math.round(255 - t * 155)}, 0)`;
+    }
+  }
 
   /* Build offscreen grid canvas */
   const drawGrid = useCallback((width: number, height: number, dpr: number) => {
@@ -277,6 +298,53 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
         ctx.lineWidth = 1;
         ctx.stroke();
 
+        /* Waterfall spectrogram */
+        if (showWaterfall) {
+          // Lazily create / resize waterfall canvas
+          const wfH = Math.floor(plotH * 0.45); // bottom 45% of plot
+          const wfW = plotW;
+          const wfY = plotH - wfH;
+
+          if (!waterfallRef.current) {
+            waterfallRef.current = document.createElement('canvas');
+          }
+          const wfCanvas = waterfallRef.current;
+          if (wfCanvas.width !== Math.ceil(wfW) || wfCanvas.height !== wfH) {
+            wfCanvas.width = Math.ceil(wfW);
+            wfCanvas.height = wfH;
+            waterfallRowRef.current = 0;
+          }
+          const wfCtx = wfCanvas.getContext('2d');
+          if (wfCtx) {
+            // Scroll existing content up by 1 pixel
+            wfCtx.drawImage(wfCanvas, 0, 0, wfCanvas.width, wfCanvas.height, 0, -1, wfCanvas.width, wfCanvas.height);
+
+            // Draw new row at the bottom
+            const rowY = wfCanvas.height - 1;
+            for (let px = 0; px < wfCanvas.width; px++) {
+              const freq = xToFreq(px, wfW);
+              const bin = Math.round((freq / sampleRate) * fftSize);
+              if (bin < 1 || bin >= binCount) continue;
+              const dB = (spectrumData[bin] / 255) * DB_RANGE + MIN_DB;
+              wfCtx.fillStyle = dbToColor(dB);
+              wfCtx.fillRect(px, rowY, 1, 1);
+            }
+
+            // Composite waterfall onto main canvas
+            ctx.globalAlpha = 0.85;
+            ctx.drawImage(wfCanvas, PAD_LEFT, wfY, wfW, wfH);
+            ctx.globalAlpha = 1;
+
+            // Divider line
+            ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(PAD_LEFT, wfY);
+            ctx.lineTo(width, wfY);
+            ctx.stroke();
+          }
+        }
+
         /* Update F0 readout */
         const livePeaks = getPeakFrequencies(1);
         if (livePeaks.length > 0 && livePeaks[0].energy > 10 && f0Ref.current) {
@@ -340,7 +408,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [getSpectrumData, getPeakFrequencies, sampleRate, drawGrid]);
+  }, [getSpectrumData, getPeakFrequencies, sampleRate, drawGrid, showWaterfall]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -358,6 +426,12 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
     <div className="spectrum-view">
       <div className="spectrum-view__header">
         <span className="spectrum-view__title">SPECTRUM</span>
+        <div className="spectrum-view__separator" />
+        <button
+          className={`spectrum-view__btn${showWaterfall ? ' spectrum-view__btn--active' : ''}`}
+          onClick={() => { setShowWaterfall(w => !w); waterfallRef.current = null; }}
+          title="Toggle waterfall spectrogram"
+        >WF</button>
         <div className="spectrum-view__separator" />
         <span className="spectrum-view__f0" ref={f0Ref}>F0: ---</span>
       </div>
