@@ -1,5 +1,5 @@
 import React from 'react';
-import { Code2, Disc3, Grid3x3, Piano, List, Sparkles, Settings } from 'lucide-react';
+import { Code2, Disc3, Grid3x3, Piano, List, Sparkles, Settings, Activity } from 'lucide-react';
 import type { SidebarPanelId, BottomTabId } from '../../hooks/usePanelManager';
 import './ActivityBar.css';
 
@@ -17,6 +17,7 @@ const topIcons = [
   { id: 'sequencer', icon: Grid3x3, label: 'Sequencer' },
   { id: 'keyboard', icon: Piano, label: 'Keyboard (Dock)' },
   { id: 'presets', icon: List, label: 'Presets' },
+  { id: 'inspector', icon: Activity, label: 'State Inspector' },
 ];
 
 const bottomIcons = [

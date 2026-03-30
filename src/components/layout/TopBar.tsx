@@ -34,7 +34,7 @@ export function TopBar({
   const file = parts[parts.length - 1];
 
   return (
-    <div className="topbar">
+    <div className="topbar" style={(window as any).dsplab?.isElectron && navigator.platform?.includes('Mac') ? { paddingLeft: 76 } : undefined}>
       {/* Logo */}
       <div className="topbar__logo">
         <AudioWaveform className="topbar__logo-icon" size={16} />

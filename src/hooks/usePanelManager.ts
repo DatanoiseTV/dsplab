@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-export type SidebarPanelId = 'inputs' | 'presets' | 'settings';
+export type SidebarPanelId = 'inputs' | 'presets' | 'settings' | 'inspector';
 export type BottomTabId = 'analysis' | 'sequencer';
 
 const BOTTOM_TAB_STORAGE_KEY = 'dsplab-bottom-tab';
@@ -44,7 +44,7 @@ export function usePanelManager(options: PanelManagerOptions = {}) {
   }, []);
 
   const handleActivityBarClick = useCallback((id: string) => {
-    const sidebarPanels: SidebarPanelId[] = ['inputs', 'presets', 'settings'];
+    const sidebarPanels: SidebarPanelId[] = ['inputs', 'presets', 'settings', 'inspector'];
 
     if (id === 'code') {
       setActiveSidebarPanel(null);

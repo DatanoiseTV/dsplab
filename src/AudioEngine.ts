@@ -39,6 +39,7 @@ export class AudioEngine {
   private telemetryHistory: Record<string, any>[] = [];
   private probedStates: Record<string, number[]> = {};
   private audioMetrics: Record<string, number> = { peak: 0, rms: 0, clippingCount: 0, headroom: 0 };
+  private perfMetrics = { cpuPercent: 0, underruns: 0, underrunsPerSec: 0, dspMemoryKB: 0, avgProcessTimeUs: 0 };
 
   private sources: InputSource[] = [];
   private settings = {
@@ -226,6 +227,7 @@ export class AudioEngine {
           if (this.telemetryHistory.length > 20) this.telemetryHistory.shift();
           const probes = event.data.probes || {};
           if (event.data.metrics) this.audioMetrics = event.data.metrics;
+          if (event.data.perfMetrics) this.perfMetrics = event.data.perfMetrics;
           this.stateListeners.forEach(l => l(this.liveState, probes));
           if (event.data.probes) this.probedStates = event.data.probes;
         } else if (event.data.type === 'runtimeError') {
@@ -355,6 +357,7 @@ export class AudioEngine {
   }
   public getProbedStates() { return this.probedStates; }
   public getAudioMetrics() { return this.audioMetrics; }
+  public getPerfMetrics() { return this.perfMetrics; }
 
   public getScopeData() {
     if (this.analyserL) {

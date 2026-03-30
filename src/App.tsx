@@ -15,6 +15,7 @@ import { VirtualKeyboard } from './components/keyboard/VirtualKeyboard';
 import { StepSequencer } from './components/sequencer/StepSequencer';
 import type { Step } from './components/sequencer/StepSequencer';
 import { InputsPanel } from './components/inputs/InputsPanel';
+import { SettingsPanel } from './components/settings/SettingsPanel';
 import PresetBrowser from './components/presets/PresetBrowser';
 import JSZip from 'jszip';
 import { PRESETS } from './constants/presets';
@@ -51,6 +52,7 @@ const App: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [vultVersion, setVultVersion] = useState<'v0' | 'v1'>('v1');
   const [status, setStatus] = useState('Idle');
+  const [dspPerf, setDspPerf] = useState({ cpuPercent: 0, underruns: 0, dspMemoryKB: 0 });
   const [_audioStatus, setAudioStatus] = useState<{ state: string; sampleRate: number }>({ state: 'suspended', sampleRate: 0 });
   const [editorMarkers, setEditorMarkers] = useState<any[]>([]);
   const [showInspector, setShowInspector] = useState(false);
@@ -308,6 +310,17 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, [saveSnapshot]);
 
+  // Poll DSP performance metrics for status bar
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (isPlaying) {
+        const pm = audioEngineRef.current.getPerfMetrics();
+        setDspPerf({ cpuPercent: pm.cpuPercent, underruns: pm.underruns, dspMemoryKB: pm.dspMemoryKB });
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [isPlaying]);
+
   useEffect(() => { audioEngineRef.current.setSources(inputs); }, [inputs]);
 
   // Sync sequencer state to AudioWorklet
@@ -330,6 +343,55 @@ const App: React.FC = () => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // ── Electron native menu integration ──────────────────────────────────────
+  const codeRef = useRef(code);
+  codeRef.current = code;
+  const menuHandlerRef = useRef<(event: string, data?: any) => void>(() => {});
+
+  useEffect(() => {
+    menuHandlerRef.current = (event: string, data?: any) => {
+      switch (event) {
+        case 'file:new':
+          setCode(PRESETS["Minimal"]);
+          updateProjectName("New Vult Project");
+          break;
+        case 'file:save':
+          (window as any).dsplab?.saveFile(codeRef.current);
+          break;
+        case 'file:save-as':
+          (window as any).dsplab?.saveFileAs(codeRef.current);
+          break;
+        case 'file:export':
+          setShowExportModal(true);
+          break;
+        case 'file:opened':
+          if (data?.content) {
+            setCode(data.content);
+            if (data.name) updateProjectName(data.name);
+          }
+          break;
+        case 'view:toggle-sidebar':
+          panelManager.handleActivityBarClick('presets');
+          break;
+        case 'view:toggle-ai':
+          setShowAI(prev => !prev);
+          break;
+        case 'view:command-palette':
+          commandPalette.open();
+          break;
+        case 'transport:toggle':
+          handleTogglePlay();
+          break;
+      }
+    };
+  });
+
+  useEffect(() => {
+    const dsplab = (window as any).dsplab;
+    if (!dsplab?.isElectron || !dsplab.onMenuEvent) return;
+    return dsplab.onMenuEvent((event: string, data?: unknown) => menuHandlerRef.current(event, data));
   }, []);
 
   // MIDI must be initialised from a user gesture — call this on first interaction
@@ -677,10 +739,11 @@ const App: React.FC = () => {
     inputs: 'Inputs',
     presets: 'Presets',
     settings: 'Settings',
+    inspector: 'State Inspector',
   };
 
   const shortcuts: Shortcut[] = useMemo(() => [
-    { key: 'Space', action: handleTogglePlay, description: 'Play / Stop', category: 'Transport' },
+    { key: 'Enter', meta: true, action: handleTogglePlay, description: 'Play / Stop', category: 'Transport' },
     { key: 'k', meta: true, action: () => commandPalette.open(), description: 'Command Palette', category: 'General' },
     { key: '/', meta: true, action: () => setShowShortcuts(prev => !prev), description: 'Toggle Shortcuts', category: 'General' },
     { key: '1', meta: true, action: () => panelManager.toggleSidebarPanel('inputs'), description: 'Toggle Inputs', category: 'Panels' },
@@ -724,8 +787,10 @@ const App: React.FC = () => {
         keyboardDocked={keyboardDocked}
         onIconClick={panelManager.handleActivityBarClick}
         status={status.includes('Error') || status.includes('Crash') ? 'error' : status === 'Running' ? 'ready' : 'ready'}
-        cpuPercent={0}
+        cpuPercent={dspPerf.cpuPercent}
         latencyMs={128 / (audioEngineRef.current?.audioContext?.sampleRate || 48000) * 1000}
+        underruns={dspPerf.underruns}
+        dspMemoryKB={dspPerf.dspMemoryKB}
         sidebar={
           panelManager.activeSidebarPanel ? (
             <Sidebar
@@ -739,6 +804,8 @@ const App: React.FC = () => {
                   onInputChange={updateInput}
                   onTrigger={(idx) => audioEngineRef.current.triggerGenerator(idx)}
                   onSampleUpload={handleSampleUpload}
+                  onAddInput={() => setInputs(prev => [...prev, { name: `input${prev.length + 1}`, type: 'cv', freq: 440, value: 0.5, oscType: 'sine', lfoRate: 1, lfoDepth: 1, lfoShape: 'sine' }])}
+                  onRemoveInput={(idx) => setInputs(prev => prev.filter((_, i) => i !== idx))}
                   audioDevices={audioDevices}
                 />
               )}
@@ -751,9 +818,20 @@ const App: React.FC = () => {
                 />
               )}
               {panelManager.activeSidebarPanel === 'settings' && (
-                <div style={{ padding: 16, color: 'var(--text-muted)', fontSize: 12 }}>
-                  Settings panel coming soon.
-                </div>
+                <SettingsPanel
+                  compilerVersion={vultVersion}
+                  onCompilerVersionChange={(v) => { setVultVersion(v); audioEngineRef.current.setCompilerVersion(v); }}
+                  sampleRate={audioEngineRef.current?.audioContext?.sampleRate || 48000}
+                  bufferSize={128}
+                />
+              )}
+              {panelManager.activeSidebarPanel === 'inspector' && (
+                <StateInspector
+                  onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)}
+                  onProbe={(name) => setActiveProbes(prev => prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name])}
+                  onSetState={(path, value) => audioEngineRef.current.setState(path, value)}
+                  activeProbes={activeProbes}
+                />
               )}
             </Sidebar>
           ) : null

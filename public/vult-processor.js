@@ -52,6 +52,19 @@ class VultProcessor extends AudioWorkletProcessor {
       headroom: 0
     };
 
+    // DSP Performance Metrics
+    this.perfMetrics = {
+      cpuPercent: 0,           // % of available time spent in process()
+      underruns: 0,            // total underrun count since start
+      underrunsPerSec: 0,      // underruns in the last second
+      dspMemoryKB: 0,          // estimated DSP memory usage
+      avgProcessTimeUs: 0,     // average process() time in microseconds
+    };
+    this._processTimesUs = [];     // rolling window of process() durations (seconds)
+    this._lastProcessTime = 0;     // last process() currentTime
+    this._underrunWindow = [];     // timestamps of recent underruns (seconds)
+    this._blockDurationSec = 0;    // expected block duration in seconds
+
     // Crash handling
     this.errorCount = 0;
     this.isCrashed = false;
@@ -208,6 +221,19 @@ class VultProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, parameters) {
+    // AudioWorklet has no performance.now() — use currentTime (seconds) from BaseAudioContext
+    const _t0 = currentTime;
+
+    // Underrun detection: if time since last call exceeds 2x expected block duration
+    if (this._lastProcessTime > 0 && this._blockDurationSec > 0) {
+      const gap = _t0 - this._lastProcessTime;
+      if (gap > this._blockDurationSec * 2.5) {
+        this.perfMetrics.underruns++;
+        this._underrunWindow.push(_t0);
+      }
+    }
+    this._lastProcessTime = _t0;
+
     // Apply deferred code compilation (moved here from onmessage to avoid
     // blocking the render thread — see updateCode handler comment).
     if (this._pendingCode !== null) {
@@ -551,17 +577,60 @@ class VultProcessor extends AudioWorkletProcessor {
     this.metrics.clippingCount = blockClips;
     this.metrics.headroom = this.metrics.peak > 0 ? 20 * Math.log10(1.0 / this.metrics.peak) : 100;
 
+    // ── Performance measurement ──────────────────────────────────────────
+    const _t1 = currentTime;
+    const processTimeSec = _t1 - _t0;
+    this._processTimesUs.push(processTimeSec);
+    if (this._processTimesUs.length > 100) this._processTimesUs.shift();
+
+    // Compute block duration from sample rate + buffer size
+    if (this._blockDurationSec === 0 && this.sampleRate > 0 && numSamples > 0) {
+      this._blockDurationSec = numSamples / this.sampleRate;
+    }
+
+    // Sliding underrun window — keep only last second
+    const nowSec = _t1;
+    while (this._underrunWindow.length > 0 && (nowSec - this._underrunWindow[0]) > 1.0) {
+      this._underrunWindow.shift();
+    }
+    this.perfMetrics.underrunsPerSec = this._underrunWindow.length;
+
+    // Average process time and CPU%
+    const sum = this._processTimesUs.reduce((a, b) => a + b, 0);
+    this.perfMetrics.avgProcessTimeUs = (sum / this._processTimesUs.length) * 1e6; // convert to microseconds for display
+    if (this._blockDurationSec > 0) {
+      this.perfMetrics.cpuPercent = ((sum / this._processTimesUs.length) / this._blockDurationSec) * 100;
+    }
+
+    // Estimate DSP memory: rough size of vult instance + probe history + sample buffers
+    let memEstimate = 0;
+    if (this.vultInstance) {
+      // Count keys on instance as rough proxy (each key ~ 64 bytes for number/array ref)
+      const keys = Object.keys(this.vultInstance);
+      memEstimate += keys.length * 64;
+      const ctx = this.vultInstance.context || this.vultInstance._ctx;
+      if (ctx) memEstimate += Object.keys(ctx).length * 64;
+    }
+    for (const key in this.sampleBuffers) {
+      const buf = this.sampleBuffers[key];
+      if (buf) memEstimate += buf.length * 4; // Float32 = 4 bytes
+    }
+    for (const key in this.probeHistory) {
+      memEstimate += (this.probeHistory[key]?.length || 0) * 8;
+    }
+    this.perfMetrics.dspMemoryKB = memEstimate / 1024;
+
     // TELEMETRY & PROBE COLLECTION
     if (this.vultInstance) {
       this.activeProbes.forEach(p => {
         const parts = p.split('.');
         let target = this.vultInstance.context || this.vultInstance._ctx || this.vultInstance;
         for(const part of parts) { if(target && target[part] !== undefined) target = target[part]; else break; }
-        
+
         let val = 0;
         if (typeof target === 'number') val = target;
         else if (typeof target === 'boolean') val = target ? 1.0 : 0.0;
-        
+
         if (!this.probeHistory[p]) this.probeHistory[p] = [];
         this.probeHistory[p].push(val);
       });
@@ -569,11 +638,12 @@ class VultProcessor extends AudioWorkletProcessor {
       if (this.telemetryCounter++ > 23) {
         this.telemetryCounter = 0;
         const state = this.getQuickState();
-        this.port.postMessage({ 
-          type: 'telemetry', 
-          state, 
+        this.port.postMessage({
+          type: 'telemetry',
+          state,
           probes: this.probeHistory,
-          metrics: this.metrics
+          metrics: this.metrics,
+          perfMetrics: this.perfMetrics
         });
         for (const key in this.probeHistory) { this.probeHistory[key] = []; }
       }

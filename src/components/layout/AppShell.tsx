@@ -24,6 +24,8 @@ export interface AppShellProps {
   status: 'ready' | 'compiling' | 'error';
   cpuPercent: number;
   latencyMs: number;
+  underruns?: number;
+  dspMemoryKB?: number;
   vultVersion_display?: string;
   sidebar?: React.ReactNode;
   bottomPanel?: React.ReactNode;
@@ -37,7 +39,7 @@ export function AppShell({
   vultVersion, onVultVersionChange,
   sampleRate, bufferSize, onExport, onCommandPalette,
   activeSidebarPanel, activeBottomTab, showAI, keyboardDocked, onIconClick,
-  status, cpuPercent, latencyMs, vultVersion_display = '0.4.15',
+  status, cpuPercent, latencyMs, underruns, dspMemoryKB, vultVersion_display = '0.4.15',
   sidebar, bottomPanel, dockedKeyboard, aiOverlay, children,
 }: AppShellProps) {
   return (
@@ -74,6 +76,8 @@ export function AppShell({
         status={status}
         cpuPercent={cpuPercent}
         latencyMs={latencyMs}
+        underruns={underruns}
+        dspMemoryKB={dspMemoryKB}
         vultVersion={vultVersion_display}
       />
     </div>
