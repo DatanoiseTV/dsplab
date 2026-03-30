@@ -68,21 +68,20 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
   const waterfallRef = useRef<HTMLCanvasElement | null>(null);
   const waterfallRowRef = useRef(0);
 
-  /* Waterfall color map: dB → RGB (blue-cyan-yellow-red heat map) */
+  /* Waterfall color map: dB → RGB (dark muted palette: black → deep blue → teal → warm white) */
   function dbToColor(dB: number): string {
-    const norm = Math.max(0, Math.min(1, (dB - MIN_DB) / DB_RANGE)); // 0=silence, 1=max
-    if (norm < 0.25) {
-      const t = norm / 0.25;
-      return `rgb(0, 0, ${Math.round(t * 180)})`;
-    } else if (norm < 0.5) {
-      const t = (norm - 0.25) / 0.25;
-      return `rgb(0, ${Math.round(t * 220)}, ${Math.round(180 - t * 80)})`;
-    } else if (norm < 0.75) {
-      const t = (norm - 0.5) / 0.25;
-      return `rgb(${Math.round(t * 255)}, ${Math.round(220 + t * 35)}, ${Math.round(100 - t * 100)})`;
+    const norm = Math.max(0, Math.min(1, (dB - MIN_DB) / DB_RANGE));
+    // Apply slight gamma for more detail in the low end
+    const g = Math.pow(norm, 0.85);
+    if (g < 0.33) {
+      const t = g / 0.33;
+      return `rgb(${Math.round(t * 15)}, ${Math.round(t * 25)}, ${Math.round(t * 60)})`;
+    } else if (g < 0.66) {
+      const t = (g - 0.33) / 0.33;
+      return `rgb(${Math.round(15 + t * 30)}, ${Math.round(25 + t * 75)}, ${Math.round(60 + t * 40)})`;
     } else {
-      const t = (norm - 0.75) / 0.25;
-      return `rgb(255, ${Math.round(255 - t * 155)}, 0)`;
+      const t = (g - 0.66) / 0.34;
+      return `rgb(${Math.round(45 + t * 140)}, ${Math.round(100 + t * 120)}, ${Math.round(100 + t * 80)})`;
     }
   }
 
@@ -226,13 +225,17 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
           // Scroll up by 1 pixel
           wfCtx.drawImage(wfCanvas, 0, 0, wfCanvas.width, wfCanvas.height, 0, -1, wfCanvas.width, wfCanvas.height);
 
-          // Draw new row at bottom
+          // Draw new row at bottom — use linear interpolation between bins
           const rowY = wfCanvas.height - 1;
           for (let px = 0; px < wfCanvas.width; px++) {
             const freq = xToFreq(px, plotW);
-            const bin = Math.round((freq / sampleRate) * fftSize);
-            if (bin < 1 || bin >= binCount) continue;
-            const dB = (spectrumData[bin] / 255) * DB_RANGE + MIN_DB;
+            const binF = (freq / sampleRate) * fftSize;
+            const binLo = Math.floor(binF);
+            const binHi = Math.min(binLo + 1, binCount - 1);
+            if (binLo < 1 || binHi >= binCount) continue;
+            const frac = binF - binLo;
+            const val = spectrumData[binLo] * (1 - frac) + spectrumData[binHi] * frac;
+            const dB = (val / 255) * DB_RANGE + MIN_DB;
             wfCtx.fillStyle = dbToColor(dB);
             wfCtx.fillRect(px, rowY, 1, 1);
           }
@@ -420,7 +423,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
           className={`spectrum-view__btn${showWaterfall ? ' spectrum-view__btn--active' : ''}`}
           onClick={() => { setShowWaterfall(w => !w); waterfallRef.current = null; }}
           title="Toggle waterfall spectrogram"
-        >WF</button>
+        >Waterfall</button>
         <div className="spectrum-view__separator" />
         <span className="spectrum-view__f0" ref={f0Ref}>F0: ---</span>
       </div>
