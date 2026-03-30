@@ -15,9 +15,9 @@ const topIcons = [
   { id: 'code', icon: Code2, label: 'Code Editor' },
   { id: 'inputs', icon: Disc3, label: 'Inputs' },
   { id: 'sequencer', icon: Grid3x3, label: 'Sequencer' },
-  { id: 'keyboard', icon: Piano, label: 'Keyboard (Dock)' },
+  { id: 'keyboard', icon: Piano, label: 'MIDI / Keys' },
   { id: 'presets', icon: List, label: 'Presets' },
-  { id: 'inspector', icon: Activity, label: 'State Inspector' },
+  { id: 'inspector', icon: Activity, label: 'Inspector' },
 ];
 
 const bottomIcons = [
