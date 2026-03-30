@@ -114,6 +114,94 @@ function drawGraticule(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Scale labels                                                       */
+/* ------------------------------------------------------------------ */
+
+const LABEL_COLOR = 'rgba(255,255,255,0.35)';
+const LABEL_FONT = '9px monospace';
+
+function drawScaleLabels(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  mode: ScopeMode,
+  gainLinear: number,
+  timeScaleMs: number,
+) {
+  ctx.save();
+  ctx.font = LABEL_FONT;
+  ctx.textBaseline = 'middle';
+
+  // Voltage per division: the display maps +-1.0 to the full amplitude range
+  // With gain applied, 1 division = 1/gain * (1 / (MAJOR_ROWS/2))
+  const voltsPerDiv = 1.0 / gainLinear / (MAJOR_ROWS / 2);
+
+  // ── Y-axis labels (left edge) ──
+  ctx.textAlign = 'left';
+  ctx.fillStyle = LABEL_COLOR;
+  const centerY = h / 2;
+  const divH = h / MAJOR_ROWS;
+
+  for (let i = 0; i <= MAJOR_ROWS; i++) {
+    const y = i * divH;
+    const divsFromCenter = (MAJOR_ROWS / 2) - i;
+    const voltage = divsFromCenter * voltsPerDiv;
+
+    // Format label
+    let label: string;
+    if (Math.abs(voltage) < 0.001) label = '0';
+    else if (Math.abs(voltage) >= 1) label = voltage.toFixed(1);
+    else label = voltage.toFixed(2);
+
+    // Only draw at major divisions, skip if too close to edge
+    if (y < 8 || y > h - 8) continue;
+    ctx.fillText(label, 3, y);
+  }
+
+  if (mode === 'yt') {
+    // ── X-axis labels (bottom edge) — time ──
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const divW = w / MAJOR_COLS;
+    const msPerDiv = timeScaleMs / MAJOR_COLS;
+
+    for (let i = 0; i <= MAJOR_COLS; i++) {
+      const x = i * divW;
+      const timeMs = i * msPerDiv;
+
+      let label: string;
+      if (timeMs < 1) label = `${(timeMs * 1000).toFixed(0)}us`;
+      else if (timeMs >= 10) label = `${timeMs.toFixed(0)}ms`;
+      else label = `${timeMs.toFixed(1)}ms`;
+
+      if (x < 20 || x > w - 20) continue;
+      ctx.fillText(label, x, h - 2);
+    }
+  } else {
+    // ── X/Y mode: X-axis also shows voltage ──
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const divW = w / MAJOR_COLS;
+
+    for (let i = 0; i <= MAJOR_COLS; i++) {
+      const x = i * divW;
+      const divsFromCenter = i - (MAJOR_COLS / 2);
+      const voltage = divsFromCenter * voltsPerDiv;
+
+      let label: string;
+      if (Math.abs(voltage) < 0.001) label = '0';
+      else if (Math.abs(voltage) >= 1) label = voltage.toFixed(1);
+      else label = voltage.toFixed(2);
+
+      if (x < 20 || x > w - 20) continue;
+      ctx.fillText(label, x, h - 2);
+    }
+  }
+
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ */
 /*  Trace drawing helpers                                              */
 /* ------------------------------------------------------------------ */
 
@@ -314,6 +402,12 @@ const ScopeView: React.FC<ScopeViewProps> = ({
         ctx.drawImage(graticuleRef.current, 0, 0, w, h);
         ctx.globalAlpha = 1;
       }
+
+      // 3. Scale labels
+      // Total time window in ms: samples / sampleRate * 1000
+      const sampleRate = 48000; // approximate; could be passed as prop
+      const totalTimeMs = (samplesToShow / sampleRate) * 1000;
+      drawScaleLabels(ctx, w, h, scopeMode, gainLinear, totalTimeMs);
 
       if (data) {
         if (scopeMode === 'xy') {

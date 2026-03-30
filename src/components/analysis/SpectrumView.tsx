@@ -99,7 +99,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
     ctx.font = '9px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillStyle = '#333333';
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
 
     /* Frequency labels along bottom */
     GRID_FREQS.forEach((freq) => {
@@ -107,13 +107,19 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
       ctx.fillText(formatFreq(freq), x, plotH + 4);
     });
 
-    /* dB labels along left */
+    /* dBFS labels along left */
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     for (let dB = MAX_DB; dB >= MIN_DB; dB -= DB_STEP) {
       const y = dbToY(dB, plotH);
       ctx.fillText(`${dB}`, PAD_LEFT - 4, y);
     }
+
+    /* dBFS unit at top */
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillText('dBFS', 2, 2);
 
     return oc;
   }, []);
