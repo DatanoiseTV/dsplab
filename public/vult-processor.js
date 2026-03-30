@@ -60,10 +60,10 @@ class VultProcessor extends AudioWorkletProcessor {
       dspMemoryKB: 0,          // estimated DSP memory usage
       avgProcessTimeUs: 0,     // average process() time in microseconds
     };
-    this._processTimesUs = [];     // rolling window of process() durations (seconds)
-    this._lastProcessTime = 0;     // last process() currentTime
-    this._underrunWindow = [];     // timestamps of recent underruns (seconds)
-    this._blockDurationSec = 0;    // expected block duration in seconds
+    this._processTimesMs = [];      // rolling window of process() durations (ms via Date.now)
+    this._lastCallMs = 0;          // Date.now() of last process() call
+    this._underrunWindow = [];     // timestamps of recent underruns (ms)
+    this._blockDurationMs = 0;     // expected block duration in milliseconds
 
     // Crash handling
     this.errorCount = 0;
@@ -221,18 +221,17 @@ class VultProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, parameters) {
-    // AudioWorklet has no performance.now() — use currentTime (seconds) from BaseAudioContext
-    const _t0 = currentTime;
+    const _t0 = Date.now();
 
-    // Underrun detection: if time since last call exceeds 2x expected block duration
-    if (this._lastProcessTime > 0 && this._blockDurationSec > 0) {
-      const gap = _t0 - this._lastProcessTime;
-      if (gap > this._blockDurationSec * 2.5) {
+    // Underrun detection: if time since last call exceeds 2.5x expected block duration
+    if (this._lastCallMs > 0 && this._blockDurationMs > 0) {
+      const gapMs = _t0 - this._lastCallMs;
+      if (gapMs > this._blockDurationMs * 2.5) {
         this.perfMetrics.underruns++;
         this._underrunWindow.push(_t0);
       }
     }
-    this._lastProcessTime = _t0;
+    this._lastCallMs = _t0;
 
     // Apply deferred code compilation (moved here from onmessage to avoid
     // blocking the render thread — see updateCode handler comment).
@@ -578,28 +577,31 @@ class VultProcessor extends AudioWorkletProcessor {
     this.metrics.headroom = this.metrics.peak > 0 ? 20 * Math.log10(1.0 / this.metrics.peak) : 100;
 
     // ── Performance measurement ──────────────────────────────────────────
-    const _t1 = currentTime;
-    const processTimeSec = _t1 - _t0;
-    this._processTimesUs.push(processTimeSec);
-    if (this._processTimesUs.length > 100) this._processTimesUs.shift();
+    // Date.now() has 1ms resolution — too coarse for single blocks (~2.7ms at 48kHz/128).
+    // Accumulate total processing time over a window and compute ratio vs wall time.
+    const _t1 = Date.now();
+    const elapsedMs = _t1 - _t0; // often 0 or 1 due to ms resolution
+    this._processTimesMs.push(elapsedMs);
+    if (this._processTimesMs.length > 200) this._processTimesMs.shift();
 
     // Compute block duration from sample rate + buffer size
-    if (this._blockDurationSec === 0 && this.sampleRate > 0 && numSamples > 0) {
-      this._blockDurationSec = numSamples / this.sampleRate;
+    if (this._blockDurationMs === 0 && this.sampleRate > 0 && numSamples > 0) {
+      this._blockDurationMs = (numSamples / this.sampleRate) * 1000;
     }
 
     // Sliding underrun window — keep only last second
-    const nowSec = _t1;
-    while (this._underrunWindow.length > 0 && (nowSec - this._underrunWindow[0]) > 1.0) {
+    while (this._underrunWindow.length > 0 && (_t1 - this._underrunWindow[0]) > 1000) {
       this._underrunWindow.shift();
     }
     this.perfMetrics.underrunsPerSec = this._underrunWindow.length;
 
-    // Average process time and CPU%
-    const sum = this._processTimesUs.reduce((a, b) => a + b, 0);
-    this.perfMetrics.avgProcessTimeUs = (sum / this._processTimesUs.length) * 1e6; // convert to microseconds for display
-    if (this._blockDurationSec > 0) {
-      this.perfMetrics.cpuPercent = ((sum / this._processTimesUs.length) / this._blockDurationSec) * 100;
+    // CPU% = (sum of process times) / (count * blockDuration) * 100
+    // Using a large window (200 blocks) smooths out the 1ms quantization
+    const sumMs = this._processTimesMs.reduce((a, b) => a + b, 0);
+    const count = this._processTimesMs.length;
+    this.perfMetrics.avgProcessTimeUs = (sumMs / count) * 1000; // ms → us
+    if (this._blockDurationMs > 0 && count > 0) {
+      this.perfMetrics.cpuPercent = (sumMs / (count * this._blockDurationMs)) * 100;
     }
 
     // Estimate DSP memory: rough size of vult instance + probe history + sample buffers
