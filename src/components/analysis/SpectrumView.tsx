@@ -6,6 +6,7 @@ interface SpectrumViewProps {
   getInputScopeData?: () => Float32Array;
   showInput?: boolean;
   onShowInputChange?: (show: boolean) => void;
+  onOpen3D?: () => void;
   getPeakFrequencies: (count?: number) => { energy: number; frequency: number }[];
   sampleRate?: number;
 }
@@ -113,6 +114,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
   getInputScopeData,
   showInput = false,
   onShowInputChange,
+  onOpen3D,
   getPeakFrequencies,
   sampleRate = 48000,
 }) => {
@@ -524,6 +526,13 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
           onClick={() => { setShowWaterfall(w => !w); waterfallRef.current = null; }}
           title="Toggle waterfall spectrogram"
         >Waterfall</button>
+        {onOpen3D && (
+          <button
+            className="spectrum-view__btn"
+            onClick={onOpen3D}
+            title="Open 3D waterfall view"
+          >3D</button>
+        )}
         <div className="spectrum-view__separator" />
         <span className="spectrum-view__f0" ref={f0Ref}>F0: ---</span>
       </div>

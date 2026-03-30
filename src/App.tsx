@@ -16,6 +16,7 @@ import { StepSequencer } from './components/sequencer/StepSequencer';
 import type { Step } from './components/sequencer/StepSequencer';
 import { InputsPanel } from './components/inputs/InputsPanel';
 import { SettingsPanel } from './components/settings/SettingsPanel';
+import Waterfall3D from './components/analysis/Waterfall3D';
 import PresetBrowser from './components/presets/PresetBrowser';
 import JSZip from 'jszip';
 import { PRESETS } from './constants/presets';
@@ -54,6 +55,7 @@ const App: React.FC = () => {
   const [status, setStatus] = useState('Idle');
   const [dspPerf, setDspPerf] = useState({ cpuPercent: 0, underruns: 0, dspMemoryKB: 0 });
   const [showInputOverlay, setShowInputOverlay] = useState(false);
+  const [show3DWaterfall, setShow3DWaterfall] = useState(false);
   const [_audioStatus, setAudioStatus] = useState<{ state: string; sampleRate: number }>({ state: 'suspended', sampleRate: 0 });
   const [editorMarkers, setEditorMarkers] = useState<any[]>([]);
   const [showInspector, setShowInspector] = useState(false);
@@ -871,6 +873,7 @@ const App: React.FC = () => {
                   getInputScopeData={() => audioEngineRef.current.getInputScopeData()}
                   showInput={showInputOverlay}
                   onShowInputChange={(show) => { setShowInputOverlay(show); audioEngineRef.current.setInputCapture(show); }}
+                  onOpen3D={() => setShow3DWaterfall(true)}
                   getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
                 />
                 <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />
@@ -1151,6 +1154,13 @@ const App: React.FC = () => {
         onClose={() => setShowShortcuts(false)}
         shortcuts={shortcuts}
       />
+      {show3DWaterfall && (
+        <Waterfall3D
+          getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
+          sampleRate={audioEngineRef.current?.audioContext?.sampleRate || 48000}
+          onClose={() => setShow3DWaterfall(false)}
+        />
+      )}
     </EditorCursorProvider>
   );
 };
