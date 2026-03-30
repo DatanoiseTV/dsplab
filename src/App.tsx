@@ -827,12 +827,24 @@ const App: React.FC = () => {
                 />
               )}
               {panelManager.activeSidebarPanel === 'inspector' && (
-                <StateInspector
-                  onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)}
-                  onProbe={(name) => setActiveProbes(prev => prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name])}
-                  onSetState={(path, value) => audioEngineRef.current.setState(path, value)}
-                  activeProbes={activeProbes}
-                />
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <div style={{ flex: activeProbes.length > 0 ? '0 0 50%' : '1 1 auto', overflow: 'hidden' }}>
+                    <StateInspector
+                      onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)}
+                      onProbe={(name) => setActiveProbes(prev => prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name])}
+                      onSetState={(path, value) => audioEngineRef.current.setState(path, value)}
+                      activeProbes={activeProbes}
+                    />
+                  </div>
+                  {activeProbes.length > 0 && (
+                    <div style={{ flex: '1 1 50%', borderTop: '1px solid var(--border-subtle)', minHeight: 120 }}>
+                      <MultiScopeView
+                        probes={activeProbes}
+                        onStateUpdate={(cb) => audioEngineRef.current.onStateUpdate(cb)}
+                      />
+                    </div>
+                  )}
+                </div>
               )}
             </Sidebar>
           ) : null
