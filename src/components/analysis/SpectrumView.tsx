@@ -211,6 +211,37 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
       const nyquist = sampleRate / 2;
       const fftSize = binCount * 2; // getByteFrequencyData returns fftSize/2 bins
 
+      /* Waterfall — drawn BEHIND spectrum so the trace overlays it */
+      if (showWaterfall && binCount > 0) {
+        if (!waterfallRef.current) {
+          waterfallRef.current = document.createElement('canvas');
+        }
+        const wfCanvas = waterfallRef.current;
+        if (wfCanvas.width !== Math.ceil(plotW) || wfCanvas.height !== plotH) {
+          wfCanvas.width = Math.ceil(plotW);
+          wfCanvas.height = plotH;
+        }
+        const wfCtx = wfCanvas.getContext('2d');
+        if (wfCtx) {
+          // Scroll up by 1 pixel
+          wfCtx.drawImage(wfCanvas, 0, 0, wfCanvas.width, wfCanvas.height, 0, -1, wfCanvas.width, wfCanvas.height);
+
+          // Draw new row at bottom
+          const rowY = wfCanvas.height - 1;
+          for (let px = 0; px < wfCanvas.width; px++) {
+            const freq = xToFreq(px, plotW);
+            const bin = Math.round((freq / sampleRate) * fftSize);
+            if (bin < 1 || bin >= binCount) continue;
+            const dB = (spectrumData[bin] / 255) * DB_RANGE + MIN_DB;
+            wfCtx.fillStyle = dbToColor(dB);
+            wfCtx.fillRect(px, rowY, 1, 1);
+          }
+
+          // Composite behind everything else
+          ctx.drawImage(wfCanvas, PAD_LEFT, 0, plotW, plotH);
+        }
+      }
+
       if (binCount > 0) {
         /* Peak hold update */
         if (!peakHoldRef.current || peakHoldRef.current.length !== binCount) {
@@ -259,10 +290,15 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
         ctx.lineTo(PAD_LEFT, plotH);
         ctx.closePath();
 
-        /* Fill gradient */
+        /* Fill gradient — lighter when waterfall is active so it shows through */
         const grad = ctx.createLinearGradient(0, 0, 0, plotH);
-        grad.addColorStop(0, 'rgba(78,205,196,0.40)');
-        grad.addColorStop(1, 'rgba(78,205,196,0.05)');
+        if (showWaterfall) {
+          grad.addColorStop(0, 'rgba(78,205,196,0.12)');
+          grad.addColorStop(1, 'rgba(78,205,196,0.02)');
+        } else {
+          grad.addColorStop(0, 'rgba(78,205,196,0.40)');
+          grad.addColorStop(1, 'rgba(78,205,196,0.05)');
+        }
         ctx.fillStyle = grad;
         ctx.fill();
 
@@ -297,53 +333,6 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
         ctx.strokeStyle = 'rgba(78,205,196,0.50)';
         ctx.lineWidth = 1;
         ctx.stroke();
-
-        /* Waterfall spectrogram */
-        if (showWaterfall) {
-          // Lazily create / resize waterfall canvas
-          const wfH = Math.floor(plotH * 0.45); // bottom 45% of plot
-          const wfW = plotW;
-          const wfY = plotH - wfH;
-
-          if (!waterfallRef.current) {
-            waterfallRef.current = document.createElement('canvas');
-          }
-          const wfCanvas = waterfallRef.current;
-          if (wfCanvas.width !== Math.ceil(wfW) || wfCanvas.height !== wfH) {
-            wfCanvas.width = Math.ceil(wfW);
-            wfCanvas.height = wfH;
-            waterfallRowRef.current = 0;
-          }
-          const wfCtx = wfCanvas.getContext('2d');
-          if (wfCtx) {
-            // Scroll existing content up by 1 pixel
-            wfCtx.drawImage(wfCanvas, 0, 0, wfCanvas.width, wfCanvas.height, 0, -1, wfCanvas.width, wfCanvas.height);
-
-            // Draw new row at the bottom
-            const rowY = wfCanvas.height - 1;
-            for (let px = 0; px < wfCanvas.width; px++) {
-              const freq = xToFreq(px, wfW);
-              const bin = Math.round((freq / sampleRate) * fftSize);
-              if (bin < 1 || bin >= binCount) continue;
-              const dB = (spectrumData[bin] / 255) * DB_RANGE + MIN_DB;
-              wfCtx.fillStyle = dbToColor(dB);
-              wfCtx.fillRect(px, rowY, 1, 1);
-            }
-
-            // Composite waterfall onto main canvas
-            ctx.globalAlpha = 0.85;
-            ctx.drawImage(wfCanvas, PAD_LEFT, wfY, wfW, wfH);
-            ctx.globalAlpha = 1;
-
-            // Divider line
-            ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(PAD_LEFT, wfY);
-            ctx.lineTo(width, wfY);
-            ctx.stroke();
-          }
-        }
 
         /* Update F0 readout */
         const livePeaks = getPeakFrequencies(1);
