@@ -21,6 +21,7 @@ import { PRESETS } from './constants/presets';
 import { SYSTEM_PROMPT_BASE } from './constants/systemPrompt';
 import { EXPORT_OPTIONS } from './constants/exportOptions';
 import { parseVultError } from './utils/vultError';
+import { apiUrl } from './utils/apiBase';
 import { AppShell } from './components/layout/AppShell';
 import { Sidebar } from './components/layout/Sidebar';
 import { BottomPanel } from './components/layout/BottomPanel';
@@ -361,6 +362,8 @@ const App: React.FC = () => {
         setStatus('Audio Error: ' + (e?.message ?? e));
         return;
       }
+      // Send code immediately after start — worklet is now guaranteed to exist
+      // and AudioContext is guaranteed to be in 'running' state
       const result = await ae.updateCode(code);
       if (result.success) { setStatus('Running'); ae.setProbes(activeProbes); setEditorMarkers([]); }
       else { setStatus('Compile Error'); setEditorMarkers(parseVultError(result)); }
@@ -469,7 +472,7 @@ const App: React.FC = () => {
     try {
       const body: Record<string, string> = { code, target: exportTarget, template: exportTemplate };
       if (exportTarget === 'java') body.javaPrefix = exportJavaPrefix;
-      const response = await fetch('/api/compile', {
+      const response = await fetch(apiUrl('/api/compile'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)

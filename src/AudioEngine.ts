@@ -1,3 +1,4 @@
+import { apiUrl } from './utils/apiBase';
 
 export interface VultInstance {
   instance: any;
@@ -179,13 +180,22 @@ export class AudioEngine {
         }));
       });
     }
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume().catch(e => console.error("Error resuming AudioContext:", e));
+    // Don't fire-and-forget — callers that need it running should await ensureRunning()
+  }
+
+  /** Ensure AudioContext is in 'running' state before proceeding. */
+  private async ensureRunning() {
+    if (!this.audioContext) this.initContextSync();
+    if (this.audioContext!.state === 'suspended') {
+      await this.audioContext!.resume();
     }
   }
 
   public async start() {
     this.initContextSync();
+    // Resume AudioContext BEFORE setting up the worklet
+    await this.ensureRunning();
+
     if (!this.workletNode) {
       try {
         await this.audioContext!.audioWorklet.addModule('/vult-processor.js');
@@ -252,9 +262,8 @@ export class AudioEngine {
       }));
     }
 
-    if (this.audioContext!.state === 'suspended') {
-      await this.audioContext!.resume();
-    }
+    // Ensure running (handles edge case if context was suspended between setup and here)
+    await this.ensureRunning();
     this.isPlaying = true;
   }
 
@@ -275,7 +284,7 @@ export class AudioEngine {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
-      const response = await fetch('/api/compile', {
+      const response = await fetch(apiUrl('/api/compile'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: vultCode, version: this.compilerVersion }),
@@ -311,7 +320,7 @@ export class AudioEngine {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for bg checks
 
-      const response = await fetch('/api/compile', {
+      const response = await fetch(apiUrl('/api/compile'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: vultCode, version: this.compilerVersion }),
