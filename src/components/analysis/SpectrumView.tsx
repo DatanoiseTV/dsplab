@@ -3,6 +3,9 @@ import './SpectrumView.css';
 
 interface SpectrumViewProps {
   getSpectrumData: () => Uint8Array;
+  getInputScopeData?: () => Float32Array;
+  showInput?: boolean;
+  onShowInputChange?: (show: boolean) => void;
   getPeakFrequencies: (count?: number) => { energy: number; frequency: number }[];
   sampleRate?: number;
 }
@@ -50,8 +53,66 @@ function formatFreqFull(freq: number): string {
   return `${Math.round(freq)} Hz`;
 }
 
+const INPUT_SPECTRUM_COLOR = 'rgba(150,150,150,0.5)';
+
+/* Minimal radix-2 FFT for input spectrum overlay */
+function fftMagnitude(signal: Float32Array, size: number): Float32Array {
+  const n = size;
+  const real = new Float32Array(n);
+  const imag = new Float32Array(n);
+
+  // Apply Hann window and copy
+  for (let i = 0; i < n; i++) {
+    const w = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (n - 1)));
+    real[i] = (i < signal.length ? signal[i] : 0) * w;
+  }
+
+  // Bit-reversal permutation
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [real[i], real[j]] = [real[j], real[i]];
+      [imag[i], imag[j]] = [imag[j], imag[i]];
+    }
+  }
+
+  // Cooley-Tukey
+  for (let len = 2; len <= n; len <<= 1) {
+    const halfLen = len >> 1;
+    const angle = (-2 * Math.PI) / len;
+    const wR = Math.cos(angle);
+    const wI = Math.sin(angle);
+    for (let i = 0; i < n; i += len) {
+      let curR = 1, curI = 0;
+      for (let j = 0; j < halfLen; j++) {
+        const tR = curR * real[i + j + halfLen] - curI * imag[i + j + halfLen];
+        const tI = curR * imag[i + j + halfLen] + curI * real[i + j + halfLen];
+        real[i + j + halfLen] = real[i + j] - tR;
+        imag[i + j + halfLen] = imag[i + j] - tI;
+        real[i + j] += tR;
+        imag[i + j] += tI;
+        const newR = curR * wR - curI * wI;
+        curI = curR * wI + curI * wR;
+        curR = newR;
+      }
+    }
+  }
+
+  // Magnitude (first half = positive frequencies)
+  const mag = new Float32Array(n >> 1);
+  for (let i = 0; i < mag.length; i++) {
+    mag[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]) / n;
+  }
+  return mag;
+}
+
 const SpectrumView: React.FC<SpectrumViewProps> = ({
   getSpectrumData,
+  getInputScopeData,
+  showInput = false,
+  onShowInputChange,
   getPeakFrequencies,
   sampleRate = 48000,
 }) => {
@@ -329,6 +390,30 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
+        /* Input spectrum overlay */
+        if (showInput && getInputScopeData) {
+          const inputBuf = getInputScopeData();
+          if (inputBuf && inputBuf.length >= 4096) {
+            const fftSize2 = 4096;
+            const mag = fftMagnitude(inputBuf.subarray(inputBuf.length - fftSize2), fftSize2);
+            ctx.beginPath();
+            let inStarted = false;
+            for (let i = 1; i < mag.length; i++) {
+              const freq = (i / fftSize2) * sampleRate;
+              if (freq < MIN_FREQ || freq > MAX_FREQ) continue;
+              const x = PAD_LEFT + freqToX(freq, plotW);
+              // Convert to dB: 20*log10(mag), with floor
+              const magDb = mag[i] > 1e-10 ? 20 * Math.log10(mag[i]) : MIN_DB;
+              const y = dbToY(Math.max(MIN_DB, magDb), plotH);
+              if (!inStarted) { ctx.moveTo(x, y); inStarted = true; }
+              else ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = INPUT_SPECTRUM_COLOR;
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+          }
+        }
+
         /* Peak hold stroke */
         ctx.beginPath();
         started = false;
@@ -408,7 +493,7 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [getSpectrumData, getPeakFrequencies, sampleRate, drawGrid, showWaterfall]);
+  }, [getSpectrumData, getInputScopeData, showInput, getPeakFrequencies, sampleRate, drawGrid, showWaterfall]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -427,6 +512,13 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
       <div className="spectrum-view__header">
         <span className="spectrum-view__title">SPECTRUM</span>
         <div className="spectrum-view__separator" />
+        {onShowInputChange && (
+          <button
+            className={`spectrum-view__btn${showInput ? ' spectrum-view__btn--active' : ''}`}
+            onClick={() => onShowInputChange(!showInput)}
+            title="Show input signal overlay"
+          >Input</button>
+        )}
         <button
           className={`spectrum-view__btn${showWaterfall ? ' spectrum-view__btn--active' : ''}`}
           onClick={() => { setShowWaterfall(w => !w); waterfallRef.current = null; }}

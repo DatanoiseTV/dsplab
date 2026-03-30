@@ -53,6 +53,7 @@ const App: React.FC = () => {
   const [vultVersion, setVultVersion] = useState<'v0' | 'v1'>('v1');
   const [status, setStatus] = useState('Idle');
   const [dspPerf, setDspPerf] = useState({ cpuPercent: 0, underruns: 0, dspMemoryKB: 0 });
+  const [showInputOverlay, setShowInputOverlay] = useState(false);
   const [_audioStatus, setAudioStatus] = useState<{ state: string; sampleRate: number }>({ state: 'suspended', sampleRate: 0 });
   const [editorMarkers, setEditorMarkers] = useState<any[]>([]);
   const [showInspector, setShowInspector] = useState(false);
@@ -845,9 +846,19 @@ const App: React.FC = () => {
           >
             {panelManager.activeBottomTab === 'analysis' && (
               <div style={{ display: 'flex', flex: 1, gap: 'var(--panel-gap)', minHeight: 0 }}>
-                <ScopeView getScopeData={() => audioEngineRef.current.getScopeData()} getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null} probes={activeProbes} />
+                <ScopeView
+                  getScopeData={() => audioEngineRef.current.getScopeData()}
+                  getInputScopeData={() => audioEngineRef.current.getInputScopeData()}
+                  showInput={showInputOverlay}
+                  onShowInputChange={(show) => { setShowInputOverlay(show); audioEngineRef.current.setInputCapture(show); }}
+                  getProbedData={(name) => audioEngineRef.current.getProbedStates()[name] || null}
+                  probes={activeProbes}
+                />
                 <SpectrumView
                   getSpectrumData={() => audioEngineRef.current.getSpectrumData()}
+                  getInputScopeData={() => audioEngineRef.current.getInputScopeData()}
+                  showInput={showInputOverlay}
+                  onShowInputChange={(show) => { setShowInputOverlay(show); audioEngineRef.current.setInputCapture(show); }}
                   getPeakFrequencies={(count) => audioEngineRef.current.getPeakFrequencies(count)}
                 />
                 <StatsView getDSPStats={() => audioEngineRef.current.getDSPStats()} />

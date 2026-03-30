@@ -40,6 +40,8 @@ export class AudioEngine {
   private probedStates: Record<string, number[]> = {};
   private audioMetrics: Record<string, number> = { peak: 0, rms: 0, clippingCount: 0, headroom: 0 };
   private perfMetrics = { cpuPercent: 0, underruns: 0, underrunsPerSec: 0, dspMemoryKB: 0, avgProcessTimeUs: 0 };
+  private inputCaptureEnabled = false;
+  private inputBuffer: Float32Array = new Float32Array(8192);
 
   private sources: InputSource[] = [];
   private settings = {
@@ -228,6 +230,7 @@ export class AudioEngine {
           const probes = event.data.probes || {};
           if (event.data.metrics) this.audioMetrics = event.data.metrics;
           if (event.data.perfMetrics) this.perfMetrics = event.data.perfMetrics;
+          if (event.data.inputBuffer) this.inputBuffer = event.data.inputBuffer;
           this.stateListeners.forEach(l => l(this.liveState, probes));
           if (event.data.probes) this.probedStates = event.data.probes;
         } else if (event.data.type === 'runtimeError') {
@@ -358,6 +361,17 @@ export class AudioEngine {
   public getProbedStates() { return this.probedStates; }
   public getAudioMetrics() { return this.audioMetrics; }
   public getPerfMetrics() { return this.perfMetrics; }
+
+  public setInputCapture(enabled: boolean) {
+    this.inputCaptureEnabled = enabled;
+    if (this.workletNode) {
+      this.workletNode.port.postMessage({ type: 'setCaptureInput', data: { enabled } });
+    }
+  }
+
+  public getInputCaptureEnabled() { return this.inputCaptureEnabled; }
+
+  public getInputScopeData(): Float32Array { return this.inputBuffer; }
 
   public getScopeData() {
     if (this.analyserL) {

@@ -11,6 +11,9 @@ type ScopeMode = 'yt' | 'xy';
 
 interface ScopeViewProps {
   getScopeData: () => { l: Float32Array; r: Float32Array };
+  getInputScopeData?: () => Float32Array;
+  showInput?: boolean;
+  onShowInputChange?: (show: boolean) => void;
   getProbedData?: (name: string) => number[] | null;
   probes?: string[];
   triggerMode?: 'auto' | 'free';
@@ -31,6 +34,7 @@ const CH1_COLOR = '#ff6b35';
 const CH2_COLOR = '#4ecdc4';
 const PROBE_COLOR = '#c678dd';
 const XY_COLOR = '#4ecdc4';
+const INPUT_COLOR = '#888888';
 
 const MAJOR_COLS = 10;
 const MAJOR_ROWS = 8;
@@ -306,6 +310,9 @@ function findTriggerPoint(data: Float32Array, threshold: number): number {
 
 const ScopeView: React.FC<ScopeViewProps> = ({
   getScopeData,
+  getInputScopeData,
+  showInput = false,
+  onShowInputChange,
   getProbedData,
   probes = [],
   triggerMode: triggerModeProp,
@@ -433,6 +440,17 @@ const ScopeView: React.FC<ScopeViewProps> = ({
           const hasStereo = data.r && data.r.length > 0;
           const halfH = h / 2;
 
+          // Input overlay (behind output traces)
+          if (showInput && getInputScopeData) {
+            const inputData = getInputScopeData();
+            if (inputData && inputData.length > 0) {
+              const inputDisplay = inputData.subarray(
+                Math.max(0, inputData.length - displayLen),
+              );
+              drawTrace(ctx, inputDisplay, INPUT_COLOR, w, halfH, halfH * 0.85 * gainLinear, true);
+            }
+          }
+
           if (hasStereo) {
             const quarterH = h / 4;
             drawTrace(ctx, displayL, CH1_COLOR, w, quarterH, quarterH * 0.85 * gainLinear);
@@ -473,7 +491,7 @@ const ScopeView: React.FC<ScopeViewProps> = ({
 
     rafRef.current = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [getScopeData, getProbedData, probes, triggerMode, threshold, scopeMode, timeScaleIdx, gainLinear, afterglow, afterglowAlpha]);
+  }, [getScopeData, getInputScopeData, showInput, getProbedData, probes, triggerMode, threshold, scopeMode, timeScaleIdx, gainLinear, afterglow, afterglowAlpha]);
 
   return (
     <div className="scope-view">
@@ -493,6 +511,9 @@ const ScopeView: React.FC<ScopeViewProps> = ({
 
         {scopeMode === 'yt' && (
           <>
+            {onShowInputChange && (
+              <Pill color={INPUT_COLOR} onClick={() => onShowInputChange(!showInput)} style={{ opacity: showInput ? 1 : 0.4, cursor: 'pointer' }}>IN</Pill>
+            )}
             <Pill color={CH1_COLOR}>CH1</Pill>
             <Pill color={CH2_COLOR}>CH2</Pill>
 

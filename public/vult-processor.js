@@ -65,6 +65,11 @@ class VultProcessor extends AudioWorkletProcessor {
     this._underrunWindow = [];     // timestamps of recent underruns (ms)
     this._blockDurationMs = 0;     // expected block duration in milliseconds
 
+    // Input signal capture (ring buffer for scope/spectrum overlay)
+    this._inputBuffer = new Float32Array(8192);
+    this._inputWritePos = 0;
+    this._captureInput = false;
+
     // Crash handling
     this.errorCount = 0;
     this.isCrashed = false;
@@ -137,6 +142,8 @@ class VultProcessor extends AudioWorkletProcessor {
         }
       } else if (type === 'setSampleRate') {
         this.sampleRate = data.sampleRate || 44100;
+      } else if (type === 'setCaptureInput') {
+        this._captureInput = !!data.enabled;
       }
     };
   }
@@ -488,6 +495,12 @@ class VultProcessor extends AudioWorkletProcessor {
         }
       }
 
+      // Capture primary input signal for overlay display
+      if (this._captureInput && inputValues.length > 0) {
+        this._inputBuffer[this._inputWritePos] = inputValues[0];
+        this._inputWritePos = (this._inputWritePos + 1) & 8191; // mod 8192
+      }
+
       if (this.vultInstance && this.vultInstance._processFn) {
         try {
           const result = this.vultInstance._processFn.apply(this.vultInstance, inputValues);
@@ -640,13 +653,24 @@ class VultProcessor extends AudioWorkletProcessor {
       if (this.telemetryCounter++ > 23) {
         this.telemetryCounter = 0;
         const state = this.getQuickState();
-        this.port.postMessage({
+        const msg = {
           type: 'telemetry',
           state,
           probes: this.probeHistory,
           metrics: this.metrics,
-          perfMetrics: this.perfMetrics
-        });
+          perfMetrics: this.perfMetrics,
+          inputBuffer: null,
+        };
+        // Include input buffer snapshot if capturing
+        if (this._captureInput) {
+          // Linearize ring buffer: write pos is the oldest sample
+          const buf = new Float32Array(8192);
+          const wp = this._inputWritePos;
+          buf.set(this._inputBuffer.subarray(wp), 0);
+          buf.set(this._inputBuffer.subarray(0, wp), 8192 - wp);
+          msg.inputBuffer = buf;
+        }
+        this.port.postMessage(msg);
         for (const key in this.probeHistory) { this.probeHistory[key] = []; }
       }
     }
