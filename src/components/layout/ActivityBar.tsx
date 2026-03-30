@@ -45,7 +45,8 @@ export function ActivityBar({ activeSidebarPanel, activeBottomTab, showAI, keybo
         onClick={() => onIconClick(item.id)}
         title={item.label}
       >
-        <Icon size={16} />
+        <Icon size={14} />
+        <span className="activity-bar__label">{item.label}</span>
         {item.dot && <span className="activity-bar__dot" />}
       </button>
     );
