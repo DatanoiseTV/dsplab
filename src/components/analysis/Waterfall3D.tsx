@@ -7,161 +7,117 @@ interface Waterfall3DProps {
   onClose: () => void;
 }
 
-const MIN_FREQ = 20;
-const MAX_FREQ = 20000;
+const MIN_FREQ = 20, MAX_FREQ = 20000;
 const LOG_MIN = Math.log10(MIN_FREQ);
 const LOG_RANGE = Math.log10(MAX_FREQ) - LOG_MIN;
-
 const MAX_ROWS = 100;
-const DB_RANGE = 96;
-const DB_MIN = -96;
+const DB_RANGE = 96, DB_MIN = -96;
 const CAPTURE_EVERY = 3;
 const BIN_OPTIONS = [64, 128, 256, 512];
 
-/* ── Inferno colormap ──────────────────────────────────────────────── */
-
-const CM: [number, number, number][] = [
-  [0,0,4],[22,11,57],[66,10,104],[120,28,109],
-  [165,54,84],[208,90,47],[237,141,23],[251,201,50],[252,255,164],
-];
-const CS = [0,.15,.30,.45,.55,.70,.82,.92,1];
-
-function infernoRGB(t: number): [number, number, number] {
-  const n = Math.max(0, Math.min(1, t));
-  let i = 0;
-  while (i < CS.length - 2 && n > CS[i + 1]) i++;
-  const f = (n - CS[i]) / (CS[i + 1] - CS[i]);
-  const a = CM[i], b = CM[i + 1];
-  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+const GRID_FREQS = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+function formatFreq(f: number): string {
+  return f >= 1000 ? `${(f/1000).toFixed(f>=10000?0:1)}k` : `${Math.round(f)}`;
 }
 
-/* ── WebGL shaders ─────────────────────────────────────────────────── */
+/* ── Shaders ───────────────────────────────────────────────────────── */
 
-const VERT = `#version 300 es
+// Mesh shader: reads height from a data texture, computes inferno color in fragment shader
+const MESH_VERT = `#version 300 es
 precision highp float;
 uniform mat4 uMVP;
-in vec3 aPos;
-in vec3 aColor;
-out vec3 vColor;
-out float vZ;
+uniform sampler2D uData;   // R channel = normalized amplitude (0..1)
+uniform int uRows;         // current row count
+uniform int uWriteRow;     // ring buffer write position
+uniform int uBins;
+uniform float uHeightScale;
+
+// Grid vertex: x=bin index (0..bins-1), y=0, z=row index (0..MAX_ROWS-1)
+in vec2 aGrid; // (binIdx, rowIdx)
+
+out float vAmp;
+out float vDepth;
+
 void main() {
-  gl_Position = uMVP * vec4(aPos, 1.0);
-  vColor = aColor;
-  vZ = aPos.z;
+  int binIdx = int(aGrid.x);
+  int rowIdx = int(aGrid.y);
+
+  // Map row to ring buffer position
+  int texRow = (uWriteRow - uRows + rowIdx + ${MAX_ROWS}) % ${MAX_ROWS};
+
+  // Read amplitude from data texture
+  float amp = texelFetch(uData, ivec2(binIdx, texRow), 0).r;
+
+  // 3D position: x = freq (-0.5..0.5), y = amplitude, z = time (-0.5..0.5)
+  float x = float(binIdx) / float(uBins - 1) - 0.5;
+  float y = amp * uHeightScale;
+  float z = float(rowIdx) / float(${MAX_ROWS} - 1) - 0.5;
+
+  gl_Position = uMVP * vec4(x, y, z, 1.0);
+  vAmp = amp;
+  vDepth = float(rowIdx) / float(${MAX_ROWS} - 1);
 }`;
 
-const FRAG = `#version 300 es
+const MESH_FRAG = `#version 300 es
 precision highp float;
-in vec3 vColor;
-in float vZ;
+in float vAmp;
+in float vDepth;
 out vec4 fragColor;
+
+// Inferno colormap in shader
+vec3 inferno(float t) {
+  // Simplified 5-stop inferno
+  vec3 c0 = vec3(0.0, 0.0, 0.016);
+  vec3 c1 = vec3(0.26, 0.04, 0.41);
+  vec3 c2 = vec3(0.65, 0.21, 0.33);
+  vec3 c3 = vec3(0.93, 0.55, 0.09);
+  vec3 c4 = vec3(0.99, 1.0, 0.64);
+  float s = clamp(t, 0.0, 1.0);
+  if (s < 0.25) return mix(c0, c1, s * 4.0);
+  if (s < 0.50) return mix(c1, c2, (s - 0.25) * 4.0);
+  if (s < 0.75) return mix(c2, c3, (s - 0.50) * 4.0);
+  return mix(c3, c4, (s - 0.75) * 4.0);
+}
+
 void main() {
-  float fade = smoothstep(-0.5, 0.5, vZ) * 0.6 + 0.4;
-  fragColor = vec4(vColor * fade, 0.85);
+  vec3 col = inferno(vAmp);
+  float fade = 0.3 + 0.7 * vDepth; // older rows dimmer
+  fragColor = vec4(col * fade, 0.88);
 }`;
 
 const LINE_VERT = `#version 300 es
 precision highp float;
 uniform mat4 uMVP;
 in vec3 aPos;
-uniform vec4 uColor;
-out vec4 vColor;
-void main() {
-  gl_Position = uMVP * vec4(aPos, 1.0);
-  vColor = uColor;
-}`;
+void main() { gl_Position = uMVP * vec4(aPos, 1.0); }`;
 
 const LINE_FRAG = `#version 300 es
 precision highp float;
-in vec4 vColor;
+uniform vec4 uColor;
 out vec4 fragColor;
-void main() { fragColor = vColor; }`;
+void main() { fragColor = uColor; }`;
 
-/* ── Matrix math (minimal) ─────────────────────────────────────────── */
-
-type Mat4 = Float32Array;
-
-function mat4Identity(): Mat4 {
-  const m = new Float32Array(16);
-  m[0]=m[5]=m[10]=m[15]=1;
-  return m;
-}
-
-function mat4Perspective(fov: number, aspect: number, near: number, far: number): Mat4 {
-  const m = new Float32Array(16);
-  const f = 1 / Math.tan(fov / 2);
-  m[0] = f / aspect; m[5] = f;
-  m[10] = (far + near) / (near - far);
-  m[11] = -1;
-  m[14] = (2 * far * near) / (near - far);
-  return m;
-}
-
-function mat4Mul(a: Mat4, b: Mat4): Mat4 {
-  const o = new Float32Array(16);
-  for (let i = 0; i < 4; i++)
-    for (let j = 0; j < 4; j++) {
-      let s = 0;
-      for (let k = 0; k < 4; k++) s += a[i + k * 4] * b[k + j * 4];
-      o[i + j * 4] = s;
-    }
-  return o;
-}
-
-function mat4RotX(a: number): Mat4 {
-  const m = mat4Identity();
-  const c = Math.cos(a), s = Math.sin(a);
-  m[5]=c; m[6]=s; m[9]=-s; m[10]=c;
-  return m;
-}
-
-function mat4RotY(a: number): Mat4 {
-  const m = mat4Identity();
-  const c = Math.cos(a), s = Math.sin(a);
-  m[0]=c; m[2]=-s; m[8]=s; m[10]=c;
-  return m;
-}
-
-function mat4Translate(x: number, y: number, z: number): Mat4 {
-  const m = mat4Identity();
-  m[12]=x; m[13]=y; m[14]=z;
-  return m;
-}
-
-function mat4Scale(x: number, y: number, z: number): Mat4 {
-  const m = mat4Identity();
-  m[0]=x; m[5]=y; m[10]=z;
-  return m;
-}
+/* ── Minimal matrix math ───────────────────────────────────────────── */
+type M4 = Float32Array;
+const m4I = (): M4 => { const m = new Float32Array(16); m[0]=m[5]=m[10]=m[15]=1; return m; };
+const m4P = (fov:number,a:number,n:number,f:number): M4 => {
+  const m=new Float32Array(16),t=1/Math.tan(fov/2);
+  m[0]=t/a;m[5]=t;m[10]=(f+n)/(n-f);m[11]=-1;m[14]=2*f*n/(n-f);return m;
+};
+const m4M = (a:M4,b:M4): M4 => {
+  const o=new Float32Array(16);
+  for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[i+k*4]*b[k+j*4];o[i+j*4]=s;}return o;
+};
+const m4RX = (a:number):M4 => {const m=m4I(),c=Math.cos(a),s=Math.sin(a);m[5]=c;m[6]=s;m[9]=-s;m[10]=c;return m;};
+const m4RY = (a:number):M4 => {const m=m4I(),c=Math.cos(a),s=Math.sin(a);m[0]=c;m[2]=-s;m[8]=s;m[10]=c;return m;};
+const m4T = (x:number,y:number,z:number):M4 => {const m=m4I();m[12]=x;m[13]=y;m[14]=z;return m;};
+const m4S = (x:number,y:number,z:number):M4 => {const m=m4I();m[0]=x;m[5]=y;m[10]=z;return m;};
+const m4Apply = (m:M4,x:number,y:number,z:number):[number,number,number,number] =>
+  [m[0]*x+m[4]*y+m[8]*z+m[12],m[1]*x+m[5]*y+m[9]*z+m[13],m[2]*x+m[6]*y+m[10]*z+m[14],m[3]*x+m[7]*y+m[11]*z+m[15]];
 
 /* ── GL helpers ────────────────────────────────────────────────────── */
-
-function compileShader(gl: WebGL2RenderingContext, src: string, type: number): WebGLShader {
-  const s = gl.createShader(type)!;
-  gl.shaderSource(s, src);
-  gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
-    console.error('Shader:', gl.getShaderInfoLog(s));
-  return s;
-}
-
-function createProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
-  const p = gl.createProgram()!;
-  gl.attachShader(p, compileShader(gl, vs, gl.VERTEX_SHADER));
-  gl.attachShader(p, compileShader(gl, fs, gl.FRAGMENT_SHADER));
-  gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
-    console.error('Program:', gl.getProgramInfoLog(p));
-  return p;
-}
-
-/* ── Frequency labels for overlay ──────────────────────────────────── */
-
-const GRID_FREQS = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
-
-function formatFreq(f: number): string {
-  return f >= 1000 ? `${(f/1000).toFixed(f>=10000?0:1)}k` : `${Math.round(f)}`;
-}
+function mkShader(gl:WebGL2RenderingContext,src:string,t:number){const s=gl.createShader(t)!;gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
+function mkProg(gl:WebGL2RenderingContext,vs:string,fs:string){const p=gl.createProgram()!;gl.attachShader(p,mkShader(gl,vs,gl.VERTEX_SHADER));gl.attachShader(p,mkShader(gl,fs,gl.FRAGMENT_SHADER));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))console.error(gl.getProgramInfoLog(p));return p;}
 
 /* ── Component ─────────────────────────────────────────────────────── */
 
@@ -169,10 +125,8 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const glRef = useRef<WebGL2RenderingContext | null>(null);
-  const historyRef = useRef<Float32Array[]>([]);
-  const frameRef = useRef(0);
   const rafRef = useRef(0);
+  const frameRef = useRef(0);
 
   const [heightScale, setHeightScale] = useState(0.7);
   const [bins, setBins] = useState(160);
@@ -180,102 +134,113 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
   const draggingRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
 
-  const downsample = useCallback((data: Uint8Array): Float32Array => {
+  // Ring buffer state (shared via refs for perf)
+  const writeRowRef = useRef(0);
+  const rowCountRef = useRef(0);
+  const texDataRef = useRef<Float32Array | null>(null);
+
+  const downsample = useCallback((data: Uint8Array, numBins: number): Float32Array => {
     const bc = data.length, fft = bc * 2;
-    const out = new Float32Array(bins);
-    for (let i = 0; i < bins; i++) {
-      const freq = Math.pow(10, LOG_MIN + (i / (bins - 1)) * LOG_RANGE);
+    const out = new Float32Array(numBins);
+    for (let i = 0; i < numBins; i++) {
+      const freq = Math.pow(10, LOG_MIN + (i / (numBins - 1)) * LOG_RANGE);
       const bin = (freq / sampleRate) * fft;
       const lo = Math.floor(bin), hi = Math.min(lo + 1, bc - 1);
-      if (lo < 0 || hi >= bc) { out[i] = 0; continue; }
+      if (lo < 0 || hi >= bc) continue;
       const val = data[lo] * (1 - (bin - lo)) + data[hi] * (bin - lo);
       out[i] = val / 255;
     }
     return out;
-  }, [sampleRate, bins]);
+  }, [sampleRate]);
 
-  /* Mouse controls */
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    draggingRef.current = true;
-    lastMouseRef.current = { x: e.clientX, y: e.clientY };
-  }, []);
+  /* Mouse */
+  const onMouseDown = useCallback((e: React.MouseEvent) => { draggingRef.current = true; lastMouseRef.current = { x: e.clientX, y: e.clientY }; }, []);
   const onMouseMove = useCallback((e: React.MouseEvent) => {
     if (!draggingRef.current) return;
-    const dx = e.clientX - lastMouseRef.current.x;
-    const dy = e.clientY - lastMouseRef.current.y;
-    lastMouseRef.current = { x: e.clientX, y: e.clientY };
     const c = camRef.current;
-    c.rotY += dx * 0.005;
-    c.rotX = Math.max(0.05, Math.min(1.5, c.rotX + dy * 0.005));
+    c.rotY += (e.clientX - lastMouseRef.current.x) * 0.005;
+    c.rotX = Math.max(0.05, Math.min(1.5, c.rotX + (e.clientY - lastMouseRef.current.y) * 0.005));
+    lastMouseRef.current = { x: e.clientX, y: e.clientY };
   }, []);
   const onMouseUp = useCallback(() => { draggingRef.current = false; }, []);
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    camRef.current.zoom = Math.max(0.4, Math.min(3, camRef.current.zoom - e.deltaY * 0.002));
-  }, []);
+  const onWheel = useCallback((e: React.WheelEvent) => { e.preventDefault(); camRef.current.zoom = Math.max(0.4, Math.min(3, camRef.current.zoom - e.deltaY * 0.002)); }, []);
 
-  /* WebGL init + render loop */
+  /* WebGL */
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const overlay = overlayRef.current;
+    const canvas = canvasRef.current, overlay = overlayRef.current;
     if (!canvas || !overlay) return;
-
     const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
-    if (!gl) { console.error('WebGL2 not supported'); return; }
-    glRef.current = gl;
+    if (!gl) return;
 
-    const meshProg = createProgram(gl, VERT, FRAG);
-    const lineProg = createProgram(gl, LINE_VERT, LINE_FRAG);
+    const meshProg = mkProg(gl, MESH_VERT, MESH_FRAG);
+    const lineProg = mkProg(gl, LINE_VERT, LINE_FRAG);
 
-    const meshMVP = gl.getUniformLocation(meshProg, 'uMVP');
-    const meshPosAttr = gl.getAttribLocation(meshProg, 'aPos');
-    const meshColAttr = gl.getAttribLocation(meshProg, 'aColor');
+    // Mesh uniforms/attrs
+    const uMVP_m = gl.getUniformLocation(meshProg, 'uMVP');
+    const uData = gl.getUniformLocation(meshProg, 'uData');
+    const uRows = gl.getUniformLocation(meshProg, 'uRows');
+    const uWriteRow = gl.getUniformLocation(meshProg, 'uWriteRow');
+    const uBins = gl.getUniformLocation(meshProg, 'uBins');
+    const uHS = gl.getUniformLocation(meshProg, 'uHeightScale');
+    const aGrid = gl.getAttribLocation(meshProg, 'aGrid');
 
-    const lineMVP = gl.getUniformLocation(lineProg, 'uMVP');
-    const linePosAttr = gl.getAttribLocation(lineProg, 'aPos');
-    const lineColorU = gl.getUniformLocation(lineProg, 'uColor');
+    // Line uniforms/attrs
+    const uMVP_l = gl.getUniformLocation(lineProg, 'uMVP');
+    const uColor = gl.getUniformLocation(lineProg, 'uColor');
+    const aPos = gl.getAttribLocation(lineProg, 'aPos');
 
-    // Mesh buffer (dynamic, updated each frame)
+    // ── Build static grid mesh (triangle strip indices as triangles) ──
+    // Each quad: (bin, row) → (bin+1, row) → (bin, row+1) → (bin+1, row+1)
+    const gridVerts: number[] = [];
+    for (let r = 0; r < MAX_ROWS - 1; r++) {
+      for (let b = 0; b < bins - 1; b++) {
+        gridVerts.push(b, r, b+1, r, b, r+1);
+        gridVerts.push(b+1, r, b+1, r+1, b, r+1);
+      }
+    }
+    const meshData = new Float32Array(gridVerts);
     const meshVAO = gl.createVertexArray()!;
     const meshVBO = gl.createBuffer()!;
     gl.bindVertexArray(meshVAO);
     gl.bindBuffer(gl.ARRAY_BUFFER, meshVBO);
-    gl.enableVertexAttribArray(meshPosAttr);
-    gl.vertexAttribPointer(meshPosAttr, 3, gl.FLOAT, false, 24, 0);
-    gl.enableVertexAttribArray(meshColAttr);
-    gl.vertexAttribPointer(meshColAttr, 3, gl.FLOAT, false, 24, 12);
+    gl.bufferData(gl.ARRAY_BUFFER, meshData, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(aGrid);
+    gl.vertexAttribPointer(aGrid, 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
+    const meshVertCount = gridVerts.length / 2;
 
-    // Line buffer (for grid)
+    // ── Build grid lines ──
+    const lineVerts: number[] = [];
+    for (const f of GRID_FREQS) {
+      const x = ((Math.log10(f) - LOG_MIN) / LOG_RANGE) - 0.5;
+      lineVerts.push(x, 0, -0.5, x, 0, 0.5);
+    }
+    for (let t = 0; t <= 4; t++) { const z = t/4-0.5; lineVerts.push(-0.5,0,z, 0.5,0,z); }
+    for (let dB = -72; dB <= 0; dB += 24) { const y = (dB-DB_MIN)/DB_RANGE; lineVerts.push(-0.5,y,-0.5, -0.5,y,0.5); }
+    const lineData = new Float32Array(lineVerts);
     const lineVAO = gl.createVertexArray()!;
     const lineVBO = gl.createBuffer()!;
     gl.bindVertexArray(lineVAO);
     gl.bindBuffer(gl.ARRAY_BUFFER, lineVBO);
-    gl.enableVertexAttribArray(linePosAttr);
-    gl.vertexAttribPointer(linePosAttr, 3, gl.FLOAT, false, 12, 0);
+    gl.bufferData(gl.ARRAY_BUFFER, lineData, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
+    const lineVertCount = lineVerts.length / 3;
 
-    // Build grid lines (static)
-    const gridVerts: number[] = [];
-    // Frequency lines (along Z)
-    for (const f of GRID_FREQS) {
-      const x = ((Math.log10(f) - LOG_MIN) / LOG_RANGE) - 0.5;
-      gridVerts.push(x, 0, -0.5, x, 0, 0.5);
-    }
-    // Time lines (along X)
-    for (let t = 0; t <= 4; t++) {
-      const z = t / 4 - 0.5;
-      gridVerts.push(-0.5, 0, z, 0.5, 0, z);
-    }
-    // Vertical axis lines
-    for (let dB = -72; dB <= 0; dB += 24) {
-      const y = ((dB - DB_MIN) / DB_RANGE);
-      gridVerts.push(-0.5, y, -0.5, -0.5, y, 0.5);
-    }
-    const gridData = new Float32Array(gridVerts);
-    gl.bindBuffer(gl.ARRAY_BUFFER, lineVBO);
-    gl.bufferData(gl.ARRAY_BUFFER, gridData, gl.STATIC_DRAW);
-    const gridVertCount = gridVerts.length / 3;
+    // ── Data texture (bins × MAX_ROWS, R32F) ──
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const texBuf = new Float32Array(bins * MAX_ROWS);
+    texDataRef.current = texBuf;
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, bins, MAX_ROWS, 0, gl.RED, gl.FLOAT, texBuf);
+
+    writeRowRef.current = 0;
+    rowCountRef.current = 0;
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -287,174 +252,112 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
     const render = () => {
       const w = canvas.clientWidth, h = canvas.clientHeight;
       const dpr = window.devicePixelRatio || 1;
-      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-        canvas.width = w * dpr; canvas.height = h * dpr;
-        overlay.width = w * dpr; overlay.height = h * dpr;
+      if (canvas.width !== w*dpr || canvas.height !== h*dpr) {
+        canvas.width = w*dpr; canvas.height = h*dpr;
+        overlay.width = w*dpr; overlay.height = h*dpr;
       }
       gl.viewport(0, 0, canvas.width, canvas.height);
 
-      // Capture
+      // Capture new row
       frameRef.current++;
       if (frameRef.current % CAPTURE_EVERY === 0) {
         const raw = getSpectrumData();
-        if (raw.length > 0) {
-          historyRef.current.push(downsample(raw));
-          if (historyRef.current.length > MAX_ROWS) historyRef.current.shift();
+        if (raw.length > 0 && texDataRef.current) {
+          const row = downsample(raw, bins);
+          const wr = writeRowRef.current;
+          // Write into ring buffer
+          texDataRef.current.set(row, wr * bins);
+          // Upload just this one row to the texture (fast!)
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, wr, bins, 1, gl.RED, gl.FLOAT, row);
+          writeRowRef.current = (wr + 1) % MAX_ROWS;
+          rowCountRef.current = Math.min(rowCountRef.current + 1, MAX_ROWS);
         }
       }
 
-      const history = historyRef.current;
-      const rows = history.length;
       const cam = camRef.current;
-      const hScale = heightScale;
+      const hs = heightScale;
 
-      // MVP matrix
-      const proj = mat4Perspective(0.8, w / h, 0.1, 20);
-      const view = mat4Mul(
-        mat4Translate(0, -0.1, -2.5 / cam.zoom),
-        mat4Mul(mat4RotX(cam.rotX), mat4RotY(cam.rotY))
-      );
-      const model = mat4Scale(1, hScale, 1);
-      const mvp = mat4Mul(proj, mat4Mul(view, model));
+      // MVP
+      const proj = m4P(0.8, w/h, 0.1, 20);
+      const view = m4M(m4T(0, -0.1, -2.5/cam.zoom), m4M(m4RX(cam.rotX), m4RY(cam.rotY)));
+      const model = m4S(1, hs, 1);
+      const mvp = m4M(proj, m4M(view, model));
 
-      // Clear
       gl.clearColor(0.031, 0.031, 0.039, 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-      // Draw grid
+      // Grid lines
       gl.useProgram(lineProg);
-      gl.uniformMatrix4fv(lineMVP, false, mvp);
-      gl.uniform4f(lineColorU!, 1, 1, 1, 0.08);
+      gl.uniformMatrix4fv(uMVP_l, false, mvp);
+      gl.uniform4f(uColor!, 1, 1, 1, 0.08);
       gl.bindVertexArray(lineVAO);
-      gl.drawArrays(gl.LINES, 0, gridVertCount);
+      gl.drawArrays(gl.LINES, 0, lineVertCount);
 
-      // Build mesh from history
-      if (rows >= 2) {
-        const verts: number[] = [];
-        for (let r = 0; r < rows - 1; r++) {
-          const z0 = (r / (MAX_ROWS - 1)) - 0.5;
-          const z1 = ((r + 1) / (MAX_ROWS - 1)) - 0.5;
-          const d0 = history[r];
-          const d1 = history[r + 1];
-
-          for (let i = 0; i < bins - 1; i++) {
-            const x0 = (i / (bins - 1)) - 0.5;
-            const x1 = ((i + 1) / (bins - 1)) - 0.5;
-
-            const y00 = d0[i], y01 = d0[i + 1];
-            const y10 = d1[i], y11 = d1[i + 1];
-
-            const [r00, g00, b00] = infernoRGB(y00);
-            const [r01, g01, b01] = infernoRGB(y01);
-            const [r10, g10, b10] = infernoRGB(y10);
-            const [r11, g11, b11] = infernoRGB(y11);
-
-            // Scale to 0..1 for color, use as height
-            // Triangle 1
-            verts.push(x0, y00, z0, r00/255, g00/255, b00/255);
-            verts.push(x1, y01, z0, r01/255, g01/255, b01/255);
-            verts.push(x0, y10, z1, r10/255, g10/255, b10/255);
-            // Triangle 2
-            verts.push(x1, y01, z0, r01/255, g01/255, b01/255);
-            verts.push(x1, y11, z1, r11/255, g11/255, b11/255);
-            verts.push(x0, y10, z1, r10/255, g10/255, b10/255);
-          }
-        }
-
-        const meshData = new Float32Array(verts);
-        gl.bindVertexArray(meshVAO);
-        gl.bindBuffer(gl.ARRAY_BUFFER, meshVBO);
-        gl.bufferData(gl.ARRAY_BUFFER, meshData, gl.DYNAMIC_DRAW);
+      // Mesh
+      if (rowCountRef.current >= 2) {
         gl.useProgram(meshProg);
-        gl.uniformMatrix4fv(meshMVP, false, mvp);
-        gl.drawArrays(gl.TRIANGLES, 0, verts.length / 6);
+        gl.uniformMatrix4fv(uMVP_m, false, mvp);
+        gl.uniform1i(uData, 0);
+        gl.uniform1i(uRows, rowCountRef.current);
+        gl.uniform1i(uWriteRow, writeRowRef.current);
+        gl.uniform1i(uBins, bins);
+        gl.uniform1f(uHS, hs);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.bindVertexArray(meshVAO);
+        gl.drawArrays(gl.TRIANGLES, 0, meshVertCount);
       }
 
       gl.bindVertexArray(null);
 
-      // 2D overlay for labels
+      // 2D labels
       if (octx) {
         octx.clearRect(0, 0, overlay.width, overlay.height);
         octx.scale(dpr, dpr);
         octx.font = '9px monospace';
         octx.fillStyle = 'rgba(255,255,255,0.35)';
         octx.textAlign = 'center';
-
-        // Project label positions through the same MVP
         for (const f of GRID_FREQS) {
-          const x3 = ((Math.log10(f) - LOG_MIN) / LOG_RANGE) - 0.5;
-          const z3 = 0.55;
-          const clip = applyMVP(mvp, x3, 0, z3);
-          if (clip[3] > 0) {
-            const sx = (clip[0] / clip[3] * 0.5 + 0.5) * w;
-            const sy = (1 - (clip[1] / clip[3] * 0.5 + 0.5)) * h;
-            octx.fillText(formatFreq(f), sx, sy + 10);
-          }
+          const x3 = ((Math.log10(f)-LOG_MIN)/LOG_RANGE)-0.5;
+          const c = m4Apply(mvp, x3, 0, 0.55);
+          if (c[3]>0) octx.fillText(formatFreq(f), (c[0]/c[3]*0.5+0.5)*w, (1-(c[1]/c[3]*0.5+0.5))*h+10);
         }
-
-        // dBFS labels on left edge
         octx.textAlign = 'right';
-        for (let dB = -72; dB <= 0; dB += 24) {
-          const y3 = ((dB - DB_MIN) / DB_RANGE) * hScale;
-          const clip = applyMVP(mvp, -0.55, y3, -0.5);
-          if (clip[3] > 0) {
-            const sx = (clip[0] / clip[3] * 0.5 + 0.5) * w;
-            const sy = (1 - (clip[1] / clip[3] * 0.5 + 0.5)) * h;
-            octx.fillText(`${dB}`, sx - 4, sy + 3);
-          }
+        for (let dB=-72;dB<=0;dB+=24) {
+          const y3=((dB-DB_MIN)/DB_RANGE)*hs;
+          const c=m4Apply(mvp,-0.55,y3,-0.5);
+          if(c[3]>0) octx.fillText(`${dB}`, (c[0]/c[3]*0.5+0.5)*w-4, (1-(c[1]/c[3]*0.5+0.5))*h+3);
         }
-
-        // Axis titles
-        octx.textAlign = 'center';
-        octx.fillStyle = 'rgba(255,255,255,0.25)';
-        octx.font = '10px monospace';
-        const fClip = applyMVP(mvp, 0, 0, 0.65);
-        if (fClip[3] > 0) {
-          const sx = (fClip[0] / fClip[3] * 0.5 + 0.5) * w;
-          const sy = (1 - (fClip[1] / fClip[3] * 0.5 + 0.5)) * h;
-          octx.fillText('Frequency (Hz)', sx, sy + 22);
-        }
-
-        const dClip = applyMVP(mvp, -0.6, hScale * 0.5, -0.5);
-        if (dClip[3] > 0) {
-          const sx = (dClip[0] / dClip[3] * 0.5 + 0.5) * w;
-          const sy = (1 - (dClip[1] / dClip[3] * 0.5 + 0.5)) * h;
-          octx.fillText('dBFS', sx - 8, sy);
-        }
-
-        octx.setTransform(1, 0, 0, 1, 0, 0);
+        octx.textAlign='center'; octx.fillStyle='rgba(255,255,255,0.25)'; octx.font='10px monospace';
+        const fc=m4Apply(mvp,0,0,0.65); if(fc[3]>0) octx.fillText('Frequency (Hz)',(fc[0]/fc[3]*0.5+0.5)*w,(1-(fc[1]/fc[3]*0.5+0.5))*h+22);
+        const dc=m4Apply(mvp,-0.6,hs*0.5,-0.5); if(dc[3]>0) octx.fillText('dBFS',(dc[0]/dc[3]*0.5+0.5)*w-8,(1-(dc[1]/dc[3]*0.5+0.5))*h);
+        octx.setTransform(1,0,0,1,0,0);
       }
 
       rafRef.current = requestAnimationFrame(render);
     };
 
     rafRef.current = requestAnimationFrame(render);
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      gl.deleteProgram(meshProg);
-      gl.deleteProgram(lineProg);
-    };
+    return () => { cancelAnimationFrame(rafRef.current); gl.deleteProgram(meshProg); gl.deleteProgram(lineProg); gl.deleteTexture(tex); };
   }, [getSpectrumData, downsample, heightScale, bins]);
 
   return (
-    <div className="waterfall3d-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="waterfall3d-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div className="waterfall3d-modal">
         <div className="waterfall3d-header">
           <span className="waterfall3d-title">3D Spectrum Waterfall</span>
           <div className="waterfall3d-controls">
-            <label className="waterfall3d-label">
-              Height
-              <input type="range" min="0.2" max="2" step="0.05" value={heightScale}
-                onChange={e => setHeightScale(parseFloat(e.target.value))} />
+            <label className="waterfall3d-label">Height
+              <input type="range" min="0.2" max="2" step="0.05" value={heightScale} onChange={e=>setHeightScale(parseFloat(e.target.value))} />
             </label>
-            <label className="waterfall3d-label">
-              Bins
-              <select className="waterfall3d-select" value={bins} onChange={e => { setBins(Number(e.target.value)); historyRef.current = []; }}>
-                {BIN_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+            <label className="waterfall3d-label">Bins
+              <select className="waterfall3d-select" value={bins} onChange={e=>{setBins(Number(e.target.value));writeRowRef.current=0;rowCountRef.current=0;texDataRef.current=null;}}>
+                {BIN_OPTIONS.map(b=><option key={b} value={b}>{b}</option>)}
               </select>
             </label>
-            <button className="waterfall3d-btn" onClick={() => { camRef.current = { rotX: 0.6, rotY: -0.5, zoom: 1.2 }; }}>Reset</button>
-            <button className="waterfall3d-btn" onClick={() => { historyRef.current = []; }}>Clear</button>
+            <button className="waterfall3d-btn" onClick={()=>{camRef.current={rotX:0.6,rotY:-0.5,zoom:1.2};}}>Reset</button>
+            <button className="waterfall3d-btn" onClick={()=>{writeRowRef.current=0;rowCountRef.current=0;if(texDataRef.current)texDataRef.current.fill(0);}}>Clear</button>
           </div>
           <button className="waterfall3d-close" onClick={onClose}>&times;</button>
         </div>
@@ -469,15 +372,5 @@ const Waterfall3D: React.FC<Waterfall3DProps> = ({ getSpectrumData, sampleRate, 
     </div>
   );
 };
-
-/* MVP * vec4 → clip coords */
-function applyMVP(m: Mat4, x: number, y: number, z: number): [number, number, number, number] {
-  return [
-    m[0]*x + m[4]*y + m[8]*z + m[12],
-    m[1]*x + m[5]*y + m[9]*z + m[13],
-    m[2]*x + m[6]*y + m[10]*z + m[14],
-    m[3]*x + m[7]*y + m[11]*z + m[15],
-  ];
-}
 
 export default Waterfall3D;
