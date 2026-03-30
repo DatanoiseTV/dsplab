@@ -68,21 +68,29 @@ const SpectrumView: React.FC<SpectrumViewProps> = ({
   const waterfallRef = useRef<HTMLCanvasElement | null>(null);
   const waterfallRowRef = useRef(0);
 
-  /* Waterfall color map: dB → RGB (dark muted palette: black → deep blue → teal → warm white) */
+  /* Waterfall color map: inferno-style (black → indigo → red-orange → yellow → white)
+     Perceptually uniform, dark-background friendly, standard for spectrograms */
+  const CMAP: [number, number, number][] = [
+    [0, 0, 4],       // 0.00 — black
+    [22, 11, 57],     // 0.15 — deep indigo
+    [66, 10, 104],    // 0.30 — purple
+    [120, 28, 109],   // 0.45 — magenta
+    [165, 54, 84],    // 0.55 — warm rose
+    [208, 90, 47],    // 0.70 — burnt orange
+    [237, 141, 23],   // 0.82 — amber
+    [251, 201, 50],   // 0.92 — yellow
+    [252, 255, 164],  // 1.00 — pale yellow-white
+  ];
+  const CMAP_STOPS = [0, 0.15, 0.30, 0.45, 0.55, 0.70, 0.82, 0.92, 1.0];
+
   function dbToColor(dB: number): string {
     const norm = Math.max(0, Math.min(1, (dB - MIN_DB) / DB_RANGE));
-    // Apply slight gamma for more detail in the low end
-    const g = Math.pow(norm, 0.85);
-    if (g < 0.33) {
-      const t = g / 0.33;
-      return `rgb(${Math.round(t * 15)}, ${Math.round(t * 25)}, ${Math.round(t * 60)})`;
-    } else if (g < 0.66) {
-      const t = (g - 0.33) / 0.33;
-      return `rgb(${Math.round(15 + t * 30)}, ${Math.round(25 + t * 75)}, ${Math.round(60 + t * 40)})`;
-    } else {
-      const t = (g - 0.66) / 0.34;
-      return `rgb(${Math.round(45 + t * 140)}, ${Math.round(100 + t * 120)}, ${Math.round(100 + t * 80)})`;
-    }
+    // Find segment
+    let i = 0;
+    while (i < CMAP_STOPS.length - 2 && norm > CMAP_STOPS[i + 1]) i++;
+    const t = (norm - CMAP_STOPS[i]) / (CMAP_STOPS[i + 1] - CMAP_STOPS[i]);
+    const a = CMAP[i], b = CMAP[i + 1];
+    return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
   }
 
   /* Build offscreen grid canvas */
